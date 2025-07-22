@@ -524,6 +524,36 @@ namespace BillPilot
             return charges;
         }
 
+        public List<Charge> GetAllOutstandingCharges(DateTime fromDate, DateTime toDate)
+        {
+            var charges = new List<Charge>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT ch.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Charges ch
+                    INNER JOIN Clients c ON ch.ClientId = c.Id
+                    LEFT JOIN Services s ON ch.ServiceId = s.Id
+                    WHERE ch.IsPaid = 0 
+                      AND ch.ChargeDate BETWEEN @fromDate AND @toDate
+                    ORDER BY ch.DueDate", connection))
+                {
+                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            charges.Add(MapChargeFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return charges;
+        }
+
         public List<DelayedPayment> GetOverdueCharges()
         {
             var delayed = new List<DelayedPayment>();
@@ -815,6 +845,10 @@ namespace BillPilot
             using (var connection = dbManager.GetConnection())
             {
                 connection.Open();
+
+                // Calculate next charge date
+                var nextChargeDate = CalculateNextChargeDate(clientService);
+
                 using (var cmd = new SQLiteCommand(@"
                     INSERT INTO ClientServices (ClientId, ServiceId, ServiceType, CustomPrice, Period, ChargeDay, StartDate, NextChargeDate, IsActive)
                     VALUES (@clientId, @serviceId, @serviceType, @customPrice, @period, @chargeDay, @startDate, @nextChargeDate, @isActive)", connection))
@@ -826,7 +860,7 @@ namespace BillPilot
                     cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
-                    cmd.Parameters.AddWithValue("@nextChargeDate", CalculateNextChargeDate(clientService));
+                    cmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
                     cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
 
                     cmd.ExecuteNonQuery();
@@ -839,6 +873,18 @@ namespace BillPilot
             using (var connection = dbManager.GetConnection())
             {
                 connection.Open();
+
+                // Calculate next charge date only if it hasn't been set already
+                DateTime nextChargeDate;
+                if (clientService.NextChargeDate == null || clientService.NextChargeDate.Value.Year == 1)
+                {
+                    nextChargeDate = CalculateNextChargeDate(clientService);
+                }
+                else
+                {
+                    nextChargeDate = clientService.NextChargeDate.Value;
+                }
+
                 using (var cmd = new SQLiteCommand(@"
                     UPDATE ClientServices SET 
                         ServiceId = @serviceId,
@@ -858,7 +904,7 @@ namespace BillPilot
                     cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
-                    cmd.Parameters.AddWithValue("@nextChargeDate", CalculateNextChargeDate(clientService));
+                    cmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
                     cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
 
                     cmd.ExecuteNonQuery();
@@ -915,7 +961,8 @@ namespace BillPilot
                                         ServiceType = reader["ServiceType"].ToString(),
                                         Period = reader["Period"]?.ToString(),
                                         ChargeDay = reader["ChargeDay"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ChargeDay"]),
-                                        ServiceName = reader["ServiceName"].ToString()
+                                        ServiceName = reader["ServiceName"].ToString(),
+                                        LastChargeDate = reader["LastChargeDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["LastChargeDate"])
                                     };
                                     amount = Convert.ToDecimal(reader["Amount"]);
                                     var paymentTerms = Convert.ToInt32(reader["PaymentTermsDays"]);
@@ -957,7 +1004,10 @@ namespace BillPilot
                                 cmd.ExecuteNonQuery();
                             }
 
-                            // Update client service
+                            // Update client service with proper next charge date calculation
+                            clientService.LastChargeDate = DateTime.Now.Date;
+                            var nextChargeDate = CalculateNextChargeDate(clientService);
+
                             using (var updateCmd = new SQLiteCommand(@"
                                 UPDATE ClientServices 
                                 SET LastChargeDate = @lastChargeDate,
@@ -965,7 +1015,7 @@ namespace BillPilot
                                 WHERE Id = @id", connection))
                             {
                                 updateCmd.Parameters.AddWithValue("@lastChargeDate", DateTime.Now.Date);
-                                updateCmd.Parameters.AddWithValue("@nextChargeDate", CalculateNextChargeDate(clientService));
+                                updateCmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
                                 updateCmd.Parameters.AddWithValue("@id", clientServiceId);
                                 updateCmd.ExecuteNonQuery();
                             }
@@ -996,13 +1046,27 @@ namespace BillPilot
                     return baseDate.AddDays(7);
                 case "monthly":
                     var nextMonth = baseDate.AddMonths(1);
-                    if (clientService.ChargeDay.HasValue && clientService.ChargeDay.Value <= DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month))
+                    if (clientService.ChargeDay.HasValue)
                     {
-                        return new DateTime(nextMonth.Year, nextMonth.Month, clientService.ChargeDay.Value);
+                        var day = clientService.ChargeDay.Value;
+                        // Handle day overflow (e.g., 31st in a month with 30 days)
+                        var daysInMonth = DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextMonth.Year, nextMonth.Month, day);
                     }
                     return nextMonth;
                 case "quarterly":
-                    return baseDate.AddMonths(3);
+                    var nextQuarter = baseDate.AddMonths(3);
+                    if (clientService.ChargeDay.HasValue)
+                    {
+                        var day = clientService.ChargeDay.Value;
+                        var daysInMonth = DateTime.DaysInMonth(nextQuarter.Year, nextQuarter.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextQuarter.Year, nextQuarter.Month, day);
+                    }
+                    return nextQuarter;
                 case "yearly":
                     var nextYear = baseDate.AddYears(1);
                     if (clientService.ChargeDay.HasValue && clientService.ChargeDay.Value <= 365)

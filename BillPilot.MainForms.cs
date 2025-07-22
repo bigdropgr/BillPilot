@@ -246,7 +246,6 @@ namespace BillPilot
         private StatusStrip statusStrip;
         private ToolStripStatusLabel statusLabel;
         private ToolStripStatusLabel userLabel;
-        private ToolStrip navigationToolbar;
 
         public MainForm()
         {
@@ -305,20 +304,14 @@ namespace BillPilot
             // Create menu
             CreateMenu();
 
-            // Create navigation toolbar
-            CreateNavigationToolbar();
-
-            // Create main tab control
+            // Create main tab control (NO navigation toolbar - fixing double menu issue)
             mainTabControl = new TabControl();
             mainTabControl.Dock = DockStyle.Fill;
             mainTabControl.Font = new Font("Arial", 10);
 
-            // IMPORTANT: Ensure tabs are visible
+            // Standard tab appearance
             mainTabControl.Appearance = TabAppearance.Normal;
             mainTabControl.SizeMode = TabSizeMode.Normal;
-            mainTabControl.ItemSize = new Size(120, 30); // Make tabs larger
-            mainTabControl.DrawMode = TabDrawMode.OwnerDrawFixed;
-            mainTabControl.DrawItem += MainTabControl_DrawItem; // Custom draw for better visibility
 
             // Create tabs
             CreateDashboardTab();
@@ -337,176 +330,9 @@ namespace BillPilot
 
             // Add controls in proper order
             this.Controls.Add(mainTabControl);
-            this.Controls.Add(navigationToolbar); // Add after tab control
             this.Controls.Add(statusStrip);
-            this.Controls.Add(menuStrip); // Add menu strip last
+            this.Controls.Add(menuStrip);
             this.MainMenuStrip = menuStrip;
-        }
-
-        private void CreateNavigationToolbar()
-        {
-            navigationToolbar = new ToolStrip();
-            navigationToolbar.ImageScalingSize = new Size(32, 32);
-            navigationToolbar.Height = 50;
-            navigationToolbar.GripStyle = ToolStripGripStyle.Hidden;
-            navigationToolbar.BackColor = Color.FromArgb(245, 245, 245);
-            navigationToolbar.RenderMode = ToolStripRenderMode.Professional;
-
-            // Dashboard button
-            var btnDashboard = new ToolStripButton();
-            btnDashboard.Text = LocalizationManager.GetString("dashboard");
-            btnDashboard.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnDashboard.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnDashboard.Image = CreateNavigationIcon(Color.FromArgb(52, 144, 220), "D");
-            btnDashboard.Click += (s, e) => mainTabControl.SelectedTab = dashboardTab;
-            btnDashboard.AutoSize = true;
-            btnDashboard.Margin = new Padding(5);
-
-            // Clients button
-            var btnClients = new ToolStripButton();
-            btnClients.Text = LocalizationManager.GetString("clients");
-            btnClients.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnClients.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnClients.Image = CreateNavigationIcon(Color.FromArgb(92, 184, 92), "C");
-            btnClients.Click += (s, e) => mainTabControl.SelectedTab = clientsTab;
-            btnClients.AutoSize = true;
-            btnClients.Margin = new Padding(5);
-
-            // Services button
-            var btnServices = new ToolStripButton();
-            btnServices.Text = LocalizationManager.GetString("services");
-            btnServices.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnServices.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnServices.Image = CreateNavigationIcon(Color.FromArgb(240, 173, 78), "S");
-            btnServices.Click += (s, e) => mainTabControl.SelectedTab = servicesTab;
-            btnServices.AutoSize = true;
-            btnServices.Margin = new Padding(5);
-
-            // Upcoming payments button
-            var btnUpcoming = new ToolStripButton();
-            btnUpcoming.Text = LocalizationManager.GetString("upcoming_payments");
-            btnUpcoming.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnUpcoming.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnUpcoming.Image = CreateNavigationIcon(Color.FromArgb(91, 192, 222), "U");
-            btnUpcoming.Click += (s, e) => mainTabControl.SelectedTab = upcomingTab;
-            btnUpcoming.AutoSize = true;
-            btnUpcoming.Margin = new Padding(5);
-
-            // Delayed payments button
-            var btnDelayed = new ToolStripButton();
-            btnDelayed.Text = LocalizationManager.GetString("delayed_payments");
-            btnDelayed.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnDelayed.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnDelayed.Image = CreateNavigationIcon(Color.FromArgb(217, 83, 79), "!");
-            btnDelayed.Click += (s, e) => mainTabControl.SelectedTab = delayedTab;
-            btnDelayed.AutoSize = true;
-            btnDelayed.Margin = new Padding(5);
-
-            // Reports button
-            var btnReports = new ToolStripButton();
-            btnReports.Text = LocalizationManager.GetString("reports");
-            btnReports.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnReports.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnReports.Image = CreateNavigationIcon(Color.FromArgb(51, 122, 183), "R");
-            btnReports.Click += (s, e) => mainTabControl.SelectedTab = reportsTab;
-            btnReports.AutoSize = true;
-            btnReports.Margin = new Padding(5);
-
-            // Add all buttons
-            navigationToolbar.Items.Add(btnDashboard);
-            navigationToolbar.Items.Add(new ToolStripSeparator());
-            navigationToolbar.Items.Add(btnClients);
-            navigationToolbar.Items.Add(btnServices);
-            navigationToolbar.Items.Add(new ToolStripSeparator());
-            navigationToolbar.Items.Add(btnUpcoming);
-            navigationToolbar.Items.Add(btnDelayed);
-            navigationToolbar.Items.Add(new ToolStripSeparator());
-            navigationToolbar.Items.Add(btnReports);
-
-            // Replace this block in CreateNavigationToolbar:
-
-            // var spring = new ToolStripLabel();
-            // spring.Spring = true;
-            // navigationToolbar.Items.Add(spring);
-
-            // With this block:
-            var spring = new ToolStripStatusLabel();
-            spring.Spring = true;
-            navigationToolbar.Items.Add(spring);
-
-            // Add logout button
-            var btnLogout = new ToolStripButton();
-            btnLogout.Text = LocalizationManager.GetString("logout");
-            btnLogout.DisplayStyle = ToolStripItemDisplayStyle.ImageAndText;
-            btnLogout.TextImageRelation = TextImageRelation.ImageAboveText;
-            btnLogout.Image = CreateNavigationIcon(Color.FromArgb(169, 68, 66), "X");
-            btnLogout.Click += (s, e) => {
-                var result = MessageBox.Show("Are you sure you want to logout?",
-                    LocalizationManager.GetString("confirm"),
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question);
-                if (result == DialogResult.Yes)
-                {
-                    Application.Restart();
-                }
-            };
-            btnLogout.AutoSize = true;
-            btnLogout.Margin = new Padding(5);
-            navigationToolbar.Items.Add(btnLogout);
-        }
-
-        private Image CreateNavigationIcon(Color color, string letter)
-        {
-            var bitmap = new Bitmap(32, 32);
-            using (var g = Graphics.FromImage(bitmap))
-            {
-                g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                g.FillEllipse(new SolidBrush(color), 0, 0, 31, 31);
-                using (var font = new Font("Arial", 16, FontStyle.Bold))
-                {
-                    var size = g.MeasureString(letter, font);
-                    var x = (32 - size.Width) / 2;
-                    var y = (32 - size.Height) / 2;
-                    g.DrawString(letter, font, Brushes.White, x, y);
-                }
-            }
-            return bitmap;
-        }
-
-        private void MainTabControl_DrawItem(object sender, DrawItemEventArgs e)
-        {
-            TabControl tabControl = sender as TabControl;
-            TabPage page = tabControl.TabPages[e.Index];
-            Rectangle tabBounds = tabControl.GetTabRect(e.Index);
-
-            // Fill background
-            if (e.Index == tabControl.SelectedIndex)
-            {
-                e.Graphics.FillRectangle(new SolidBrush(Color.White), tabBounds);
-            }
-            else
-            {
-                e.Graphics.FillRectangle(new SolidBrush(Color.FromArgb(240, 240, 240)), tabBounds);
-            }
-
-            // Draw border
-            if (e.Index == tabControl.SelectedIndex)
-            {
-                using (var pen = new Pen(Color.FromArgb(52, 144, 220), 2))
-                {
-                    e.Graphics.DrawLine(pen, tabBounds.Left, tabBounds.Top, tabBounds.Right - 1, tabBounds.Top);
-                }
-            }
-
-            // Draw text
-            StringFormat stringFormat = new StringFormat();
-            stringFormat.Alignment = StringAlignment.Center;
-            stringFormat.LineAlignment = StringAlignment.Center;
-
-            using (var brush = new SolidBrush(e.Index == tabControl.SelectedIndex ? Color.Black : Color.Gray))
-            {
-                e.Graphics.DrawString(page.Text, tabControl.Font, brush, tabBounds, stringFormat);
-            }
         }
 
         private void CreateMenu()
@@ -525,12 +351,25 @@ namespace BillPilot
             var restoreMenu = new ToolStripMenuItem(LocalizationManager.GetString("restore"));
             restoreMenu.Click += RestoreMenu_Click;
 
+            var logoutMenu = new ToolStripMenuItem(LocalizationManager.GetString("logout"));
+            logoutMenu.Click += (s, e) => {
+                var result = MessageBox.Show("Are you sure you want to logout?",
+                    LocalizationManager.GetString("confirm"),
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (result == DialogResult.Yes)
+                {
+                    Application.Restart();
+                }
+            };
+
             var exitMenu = new ToolStripMenuItem(LocalizationManager.GetString("exit"));
             exitMenu.Click += (s, e) => Application.Exit();
 
             fileMenu.DropDownItems.AddRange(new ToolStripItem[] {
                 changePasswordMenu, new ToolStripSeparator(),
-                backupMenu, restoreMenu, new ToolStripSeparator(), exitMenu
+                backupMenu, restoreMenu, new ToolStripSeparator(),
+                logoutMenu, new ToolStripSeparator(), exitMenu
             });
 
             // Language menu
@@ -1082,7 +921,8 @@ namespace BillPilot
             fileMenu.DropDownItems[0].Text = LocalizationManager.GetString("change_password");
             fileMenu.DropDownItems[2].Text = LocalizationManager.GetString("backup");
             fileMenu.DropDownItems[3].Text = LocalizationManager.GetString("restore");
-            fileMenu.DropDownItems[5].Text = LocalizationManager.GetString("exit");
+            fileMenu.DropDownItems[5].Text = LocalizationManager.GetString("logout");
+            fileMenu.DropDownItems[7].Text = LocalizationManager.GetString("exit");
 
             menuStrip.Items[1].Text = LocalizationManager.GetString("language");
 
@@ -1096,9 +936,6 @@ namespace BillPilot
 
             // Update dashboard elements
             UpdateDashboardTexts();
-
-            // Update navigation toolbar
-            UpdateNavigationToolbarTexts();
 
             // Update status bar
             statusLabel.Text = "Ready";
@@ -1194,31 +1031,6 @@ namespace BillPilot
                     buttons[4].Text = LocalizationManager.GetString("generate_report");
                     buttons[5].Text = LocalizationManager.GetString("upcoming_payments");
                     buttons[6].Text = LocalizationManager.GetString("delayed_payments");
-                }
-            }
-        }
-
-        private void UpdateNavigationToolbarTexts()
-        {
-            if (navigationToolbar != null)
-            {
-                int buttonIndex = 0;
-                foreach (ToolStripItem item in navigationToolbar.Items)
-                {
-                    if (item is ToolStripButton btn)
-                    {
-                        switch (buttonIndex)
-                        {
-                            case 0: btn.Text = LocalizationManager.GetString("dashboard"); break;
-                            case 1: btn.Text = LocalizationManager.GetString("clients"); break;
-                            case 2: btn.Text = LocalizationManager.GetString("services"); break;
-                            case 3: btn.Text = LocalizationManager.GetString("upcoming_payments"); break;
-                            case 4: btn.Text = LocalizationManager.GetString("delayed_payments"); break;
-                            case 5: btn.Text = LocalizationManager.GetString("reports"); break;
-                            case 6: btn.Text = LocalizationManager.GetString("logout"); break;
-                        }
-                        buttonIndex++;
-                    }
                 }
             }
         }
