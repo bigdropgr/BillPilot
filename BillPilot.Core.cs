@@ -20,7 +20,7 @@ namespace BillPilot
         public DatabaseManager()
         {
             dbPath = Path.Combine(Application.StartupPath, "billpilot_data.db");
-            connectionString = $"Data Source={dbPath};Version=3;";
+            connectionString = $"Data Source={dbPath};Version=3;Journal Mode=WAL;";
             InitializeDatabase();
         }
 

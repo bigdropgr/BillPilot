@@ -763,14 +763,15 @@ namespace BillPilot
             }
         }
 
-        public void CreatePayment(Payment payment)
+        public void CreatePayment(Payment payment, SQLiteConnection existingConnection = null, SQLiteTransaction existingTransaction = null)
         {
-            using (var connection = dbManager.GetConnection())
+            if (existingConnection != null)
             {
-                connection.Open();
+                // Use existing connection and transaction
                 using (var cmd = new SQLiteCommand(@"
                     INSERT INTO Payments (ClientId, ServiceId, ClientServiceId, PaymentType, DueDate, Amount, IsPaid, IsOverdue, CreatedBy)
-                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", connection))
+                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", 
+                    existingConnection, existingTransaction))
                 {
                     cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
                     cmd.Parameters.AddWithValue("@serviceId", (object)payment.ServiceId ?? DBNull.Value);
@@ -781,6 +782,28 @@ namespace BillPilot
                     cmd.Parameters.AddWithValue("@createdBy", payment.CreatedBy);
 
                     cmd.ExecuteNonQuery();
+                }
+            }
+            else
+            {
+                // Create new connection as before
+                using (var connection = dbManager.GetConnection())
+                {
+                    connection.Open();
+                    using (var cmd = new SQLiteCommand(@"
+                        INSERT INTO Payments (ClientId, ServiceId, ClientServiceId, PaymentType, DueDate, Amount, IsPaid, IsOverdue, CreatedBy)
+                        VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
+                        cmd.Parameters.AddWithValue("@serviceId", (object)payment.ServiceId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@clientServiceId", (object)payment.ClientServiceId ?? DBNull.Value);
+                        cmd.Parameters.AddWithValue("@paymentType", payment.PaymentType);
+                        cmd.Parameters.AddWithValue("@dueDate", payment.DueDate);
+                        cmd.Parameters.AddWithValue("@amount", payment.Amount);
+                        cmd.Parameters.AddWithValue("@createdBy", payment.CreatedBy);
+
+                        cmd.ExecuteNonQuery();
+                    }
                 }
             }
         }
@@ -908,7 +931,7 @@ namespace BillPilot
                         using (var cmd = new SQLiteCommand(@"
                             INSERT INTO ClientServices (ClientId, ServiceId, ServiceType, CustomPrice, Period, ChargeDay, StartDate, NextPaymentDate, IsActive)
                             VALUES (@clientId, @serviceId, @serviceType, @customPrice, @period, @chargeDay, @startDate, @nextPaymentDate, @isActive);
-                            SELECT last_insert_rowid();", connection))
+                            SELECT last_insert_rowid();", connection, transaction))
                         {
                             cmd.Parameters.AddWithValue("@clientId", clientService.ClientId);
                             cmd.Parameters.AddWithValue("@serviceId", clientService.ServiceId);
@@ -933,10 +956,10 @@ namespace BillPilot
                                     ClientServiceId = clientServiceId,
                                     PaymentType = clientService.ServiceType,
                                     DueDate = nextPaymentDate,
-                                    Amount = clientService.CustomPrice ?? GetServicePrice(clientService.ServiceId),
+                                    Amount = clientService.CustomPrice ?? GetServicePrice(clientService.ServiceId, connection),
                                     CreatedBy = SessionManager.CurrentUser
                                 };
-                                paymentManager.CreatePayment(payment);
+                                paymentManager.CreatePayment(payment, connection, transaction);
                             }
                         }
 
@@ -1120,15 +1143,26 @@ namespace BillPilot
             return baseDate;
         }
 
-        private decimal GetServicePrice(int serviceId)
+        private decimal GetServicePrice(int serviceId, SQLiteConnection existingConnection = null)
         {
-            using (var connection = dbManager.GetConnection())
+            if (existingConnection != null)
             {
-                connection.Open();
-                using (var cmd = new SQLiteCommand("SELECT BasePrice FROM Services WHERE Id = @id", connection))
+                using (var cmd = new SQLiteCommand("SELECT BasePrice FROM Services WHERE Id = @id", existingConnection))
                 {
                     cmd.Parameters.AddWithValue("@id", serviceId);
                     return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+            else
+            {
+                using (var connection = dbManager.GetConnection())
+                {
+                    connection.Open();
+                    using (var cmd = new SQLiteCommand("SELECT BasePrice FROM Services WHERE Id = @id", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@id", serviceId);
+                        return Convert.ToDecimal(cmd.ExecuteScalar());
+                    }
                 }
             }
         }
@@ -1150,7 +1184,6 @@ namespace BillPilot
                 NextPaymentDate = reader["NextPaymentDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["NextPaymentDate"]),
                 IsActive = Convert.ToBoolean(reader["IsActive"]),
                 ServiceName = reader["ServiceName"].ToString(),
-                Price = Convert.ToDecimal(reader["Price"])
             };
         }
     }
