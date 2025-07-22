@@ -68,7 +68,6 @@ namespace BillPilot
                             Name TEXT NOT NULL,
                             Description TEXT,
                             BasePrice DECIMAL(10,2) NOT NULL,
-                            Category TEXT,
                             CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                             IsActive BOOLEAN DEFAULT 1
                         )",
@@ -83,27 +82,10 @@ namespace BillPilot
                             ChargeDay INTEGER,
                             StartDate DATE NOT NULL,
                             EndDate DATE,
-                            LastChargeDate DATE,
-                            NextChargeDate DATE,
+                            LastPaidDate DATE,
+                            NextPaymentDate DATE,
                             IsActive BOOLEAN DEFAULT 1,
                             CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            FOREIGN KEY (ClientId) REFERENCES Clients(Id),
-                            FOREIGN KEY (ServiceId) REFERENCES Services(Id)
-                        )",
-
-                        @"CREATE TABLE IF NOT EXISTS Charges (
-                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            ClientId INTEGER NOT NULL,
-                            ServiceId INTEGER,
-                            ChargeType TEXT NOT NULL,
-                            Description TEXT,
-                            Amount DECIMAL(10,2) NOT NULL,
-                            ChargeDate DATE NOT NULL,
-                            DueDate DATE NOT NULL,
-                            IsPaid BOOLEAN DEFAULT 0,
-                            PaidAmount DECIMAL(10,2) DEFAULT 0,
-                            CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            CreatedBy TEXT,
                             FOREIGN KEY (ClientId) REFERENCES Clients(Id),
                             FOREIGN KEY (ServiceId) REFERENCES Services(Id)
                         )",
@@ -111,16 +93,22 @@ namespace BillPilot
                         @"CREATE TABLE IF NOT EXISTS Payments (
                             Id INTEGER PRIMARY KEY AUTOINCREMENT,
                             ClientId INTEGER NOT NULL,
-                            ChargeId INTEGER,
+                            ServiceId INTEGER,
+                            ClientServiceId INTEGER,
+                            PaymentType TEXT NOT NULL,
+                            DueDate DATE NOT NULL,
+                            PaidDate DATE,
                             Amount DECIMAL(10,2) NOT NULL,
-                            PaymentDate DATE NOT NULL,
+                            IsPaid BOOLEAN DEFAULT 0,
+                            IsOverdue BOOLEAN DEFAULT 0,
                             PaymentMethod TEXT,
                             Reference TEXT,
                             Notes TEXT,
                             CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                             CreatedBy TEXT,
                             FOREIGN KEY (ClientId) REFERENCES Clients(Id),
-                            FOREIGN KEY (ChargeId) REFERENCES Charges(Id)
+                            FOREIGN KEY (ServiceId) REFERENCES Services(Id),
+                            FOREIGN KEY (ClientServiceId) REFERENCES ClientServices(Id)
                         )",
 
                         @"CREATE TABLE IF NOT EXISTS ContactHistory (
@@ -132,37 +120,6 @@ namespace BillPilot
                             CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
                             CreatedBy TEXT,
                             FOREIGN KEY (ClientId) REFERENCES Clients(Id)
-                        )",
-
-                        @"CREATE TABLE IF NOT EXISTS Expenses (
-                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            ExpenseDate DATE NOT NULL,
-                            Category TEXT NOT NULL,
-                            Description TEXT,
-                            Amount DECIMAL(10,2) NOT NULL,
-                            Vendor TEXT,
-                            Reference TEXT,
-                            Notes TEXT,
-                            CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP,
-                            CreatedBy TEXT
-                        )",
-
-                        @"CREATE TABLE IF NOT EXISTS ServiceBundles (
-                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            BundleName TEXT NOT NULL,
-                            Description TEXT,
-                            DiscountType TEXT,
-                            DiscountValue DECIMAL(10,2),
-                            IsActive BOOLEAN DEFAULT 1,
-                            CreatedDate DATETIME DEFAULT CURRENT_TIMESTAMP
-                        )",
-
-                        @"CREATE TABLE IF NOT EXISTS BundleServices (
-                            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            BundleId INTEGER NOT NULL,
-                            ServiceId INTEGER NOT NULL,
-                            FOREIGN KEY (BundleId) REFERENCES ServiceBundles(Id),
-                            FOREIGN KEY (ServiceId) REFERENCES Services(Id)
                         )"
                     };
 
@@ -276,7 +233,6 @@ namespace BillPilot
         public string Name { get; set; }
         public string Description { get; set; }
         public decimal BasePrice { get; set; }
-        public string Category { get; set; }
         public DateTime CreatedDate { get; set; }
         public bool IsActive { get; set; }
     }
@@ -292,8 +248,8 @@ namespace BillPilot
         public int? ChargeDay { get; set; }
         public DateTime StartDate { get; set; }
         public DateTime? EndDate { get; set; }
-        public DateTime? LastChargeDate { get; set; }
-        public DateTime? NextChargeDate { get; set; }
+        public DateTime? LastPaidDate { get; set; }
+        public DateTime? NextPaymentDate { get; set; }
         public bool IsActive { get; set; }
         public DateTime CreatedDate { get; set; }
 
@@ -303,35 +259,18 @@ namespace BillPilot
         public decimal Price => CustomPrice ?? 0;
     }
 
-    public class Charge
-    {
-        public int Id { get; set; }
-        public int ClientId { get; set; }
-        public int? ServiceId { get; set; }
-        public string ChargeType { get; set; }
-        public string Description { get; set; }
-        public decimal Amount { get; set; }
-        public DateTime ChargeDate { get; set; }
-        public DateTime DueDate { get; set; }
-        public bool IsPaid { get; set; }
-        public decimal PaidAmount { get; set; }
-        public DateTime CreatedDate { get; set; }
-        public string CreatedBy { get; set; }
-
-        // Navigation properties
-        public string ClientName { get; set; }
-        public string ServiceName { get; set; }
-
-        public string DisplayText => $"{Description ?? ServiceName ?? "Charge"} - €{Amount:F2} (Due: {DueDate:dd/MM/yyyy})";
-    }
-
     public class Payment
     {
         public int Id { get; set; }
         public int ClientId { get; set; }
-        public int? ChargeId { get; set; }
+        public int? ServiceId { get; set; }
+        public int? ClientServiceId { get; set; }
+        public string PaymentType { get; set; } // "OneOff" or "Periodic"
+        public DateTime DueDate { get; set; }
+        public DateTime? PaidDate { get; set; }
         public decimal Amount { get; set; }
-        public DateTime PaymentDate { get; set; }
+        public bool IsPaid { get; set; }
+        public bool IsOverdue { get; set; }
         public string PaymentMethod { get; set; }
         public string Reference { get; set; }
         public string Notes { get; set; }
@@ -340,6 +279,7 @@ namespace BillPilot
 
         // Navigation properties
         public string ClientName { get; set; }
+        public string ServiceName { get; set; }
     }
 
     public class ContactHistory
@@ -351,31 +291,6 @@ namespace BillPilot
         public string Notes { get; set; }
         public DateTime CreatedDate { get; set; }
         public string CreatedBy { get; set; }
-    }
-
-    public class Expense
-    {
-        public int Id { get; set; }
-        public DateTime ExpenseDate { get; set; }
-        public string Category { get; set; }
-        public string Description { get; set; }
-        public decimal Amount { get; set; }
-        public string Vendor { get; set; }
-        public string Reference { get; set; }
-        public string Notes { get; set; }
-        public DateTime CreatedDate { get; set; }
-        public string CreatedBy { get; set; }
-    }
-
-    public class ServiceBundle
-    {
-        public int Id { get; set; }
-        public string BundleName { get; set; }
-        public string Description { get; set; }
-        public string DiscountType { get; set; }
-        public decimal DiscountValue { get; set; }
-        public bool IsActive { get; set; }
-        public DateTime CreatedDate { get; set; }
     }
 
     public class User
@@ -524,7 +439,7 @@ namespace BillPilot
     public static class LocalizationManager
     {
         private static Dictionary<string, Dictionary<string, string>> translations;
-        private static string currentLanguage = "en";
+        private static string currentLanguage = "gr"; // Greek as default
 
         static LocalizationManager()
         {
@@ -549,9 +464,9 @@ namespace BillPilot
                 {"dashboard", "Dashboard"},
                 {"clients", "Clients"},
                 {"services", "Services"},
-                {"charges", "Charges"},
                 {"payments", "Payments"},
-                {"expenses", "Expenses"},
+                {"upcoming_payments", "Upcoming Payments"},
+                {"delayed_payments", "Delayed Payments"},
                 {"reports", "Reports"},
                 {"settings", "Settings"},
                 {"language", "Language"},
@@ -585,9 +500,6 @@ namespace BillPilot
                 {"date", "Date"},
                 {"time", "Time"},
                 {"total", "Total"},
-                {"subtotal", "Subtotal"},
-                {"discount", "Discount"},
-                {"tax", "Tax"},
                 {"amount", "Amount"},
                 {"balance", "Balance"},
                 {"paid", "Paid"},
@@ -626,7 +538,6 @@ namespace BillPilot
                 {"monthly", "Monthly"},
                 {"quarterly", "Quarterly"},
                 {"yearly", "Yearly"},
-                {"charge_date", "Charge Date"},
                 {"due_date", "Due Date"},
                 {"payment_date", "Payment Date"},
                 {"payment_method", "Payment Method"},
@@ -638,8 +549,6 @@ namespace BillPilot
                 {"contact_history", "Contact History"},
                 {"contact_type", "Contact Type"},
                 {"contact_date", "Contact Date"},
-                {"upcoming_payments", "Upcoming Payments"},
-                {"delayed_payments", "Delayed Payments"},
                 {"days_overdue", "Days Overdue"},
                 {"total_clients", "Total Clients"},
                 {"total_services", "Total Services"},
@@ -653,9 +562,7 @@ namespace BillPilot
                 {"add_service", "Add Service"},
                 {"edit_service", "Edit Service"},
                 {"delete_service", "Delete Service"},
-                {"add_charge", "Add Charge"},
-                {"add_payment", "Add Payment"},
-                {"add_expense", "Add Expense"},
+                {"mark_as_paid", "Mark as Paid"},
                 {"generate_report", "Generate Report"},
                 {"revenue_report", "Revenue Report"},
                 {"outstanding_report", "Outstanding Report"},
@@ -687,27 +594,25 @@ namespace BillPilot
                 {"restore_success", "Database restored successfully."},
                 {"export_success", "Data exported successfully."},
                 {"import_success", "Data imported successfully."},
-                {"auto_charge", "Auto Charge"},
-                {"manual_charge", "Manual Charge"},
-                {"process_charge", "Process Charge"},
-                {"mark_as_paid", "Mark as Paid"},
-                {"send_reminder", "Send Reminder"},
                 {"view_details", "View Details"},
                 {"client_services", "Client Services"},
                 {"manage_services", "Manage Services"},
-                {"service_bundles", "Service Bundles"},
-                {"create_bundle", "Create Bundle"},
-                {"bundle_name", "Bundle Name"},
-                {"bundle_discount", "Bundle Discount"},
-                {"percentage", "Percentage"},
-                {"fixed_amount", "Fixed Amount"},
-                {"last_charge_date", "Last Charge Date"},
-                {"next_charge_date", "Next Charge Date"},
+                {"last_paid_date", "Last Paid Date"},
+                {"next_payment_date", "Next Payment Date"},
                 {"charge_day", "Charge Day"},
                 {"start_date", "Start Date"},
                 {"end_date", "End Date"},
                 {"welcome", "Welcome to BillPilot"},
-                {"subtitle", "Your Complete Business Management Solution"}
+                {"subtitle", "Your Complete Business Management Solution"},
+                {"delayed_payments_notice", "You have {0} delayed payments!"},
+                {"payment_amount", "Payment Amount"},
+                {"client", "Client"},
+                {"process_payment", "Process Payment"},
+                {"edit_payment", "Edit Payment"},
+                {"search_by", "Search by"},
+                {"all_fields", "All Fields"},
+                {"payment_for_months", "Payment for {0} months"},
+                {"payment_periods", "Payment Periods"}
             };
 
             // Greek translations
@@ -724,9 +629,9 @@ namespace BillPilot
                 {"dashboard", "Ταμπλό"},
                 {"clients", "Πελάτες"},
                 {"services", "Υπηρεσίες"},
-                {"charges", "Χρεώσεις"},
                 {"payments", "Πληρωμές"},
-                {"expenses", "Έξοδα"},
+                {"upcoming_payments", "Επερχόμενες Πληρωμές"},
+                {"delayed_payments", "Καθυστερημένες Πληρωμές"},
                 {"reports", "Αναφορές"},
                 {"settings", "Ρυθμίσεις"},
                 {"language", "Γλώσσα"},
@@ -760,9 +665,6 @@ namespace BillPilot
                 {"date", "Ημερομηνία"},
                 {"time", "Ώρα"},
                 {"total", "Σύνολο"},
-                {"subtotal", "Υποσύνολο"},
-                {"discount", "Έκπτωση"},
-                {"tax", "ΦΠΑ"},
                 {"amount", "Ποσό"},
                 {"balance", "Υπόλοιπο"},
                 {"paid", "Πληρωμένο"},
@@ -801,7 +703,6 @@ namespace BillPilot
                 {"monthly", "Μηνιαία"},
                 {"quarterly", "Τριμηνιαία"},
                 {"yearly", "Ετήσια"},
-                {"charge_date", "Ημερομηνία Χρέωσης"},
                 {"due_date", "Ημερομηνία Λήξης"},
                 {"payment_date", "Ημερομηνία Πληρωμής"},
                 {"payment_method", "Μέθοδος Πληρωμής"},
@@ -813,8 +714,6 @@ namespace BillPilot
                 {"contact_history", "Ιστορικό Επικοινωνίας"},
                 {"contact_type", "Τύπος Επικοινωνίας"},
                 {"contact_date", "Ημερομηνία Επικοινωνίας"},
-                {"upcoming_payments", "Επερχόμενες Πληρωμές"},
-                {"delayed_payments", "Καθυστερημένες Πληρωμές"},
                 {"days_overdue", "Ημέρες Καθυστέρησης"},
                 {"total_clients", "Σύνολο Πελατών"},
                 {"total_services", "Σύνολο Υπηρεσιών"},
@@ -828,9 +727,7 @@ namespace BillPilot
                 {"add_service", "Προσθήκη Υπηρεσίας"},
                 {"edit_service", "Επεξεργασία Υπηρεσίας"},
                 {"delete_service", "Διαγραφή Υπηρεσίας"},
-                {"add_charge", "Προσθήκη Χρέωσης"},
-                {"add_payment", "Προσθήκη Πληρωμής"},
-                {"add_expense", "Προσθήκη Εξόδου"},
+                {"mark_as_paid", "Σήμανση ως Πληρωμένο"},
                 {"generate_report", "Δημιουργία Αναφοράς"},
                 {"revenue_report", "Αναφορά Εσόδων"},
                 {"outstanding_report", "Αναφορά Εκκρεμών"},
@@ -862,27 +759,25 @@ namespace BillPilot
                 {"restore_success", "Η βάση δεδομένων επαναφέρθηκε επιτυχώς."},
                 {"export_success", "Τα δεδομένα εξήχθησαν επιτυχώς."},
                 {"import_success", "Τα δεδομένα εισήχθησαν επιτυχώς."},
-                {"auto_charge", "Αυτόματη Χρέωση"},
-                {"manual_charge", "Χειροκίνητη Χρέωση"},
-                {"process_charge", "Επεξεργασία Χρέωσης"},
-                {"mark_as_paid", "Σήμανση ως Πληρωμένο"},
-                {"send_reminder", "Αποστολή Υπενθύμισης"},
                 {"view_details", "Προβολή Λεπτομερειών"},
                 {"client_services", "Υπηρεσίες Πελάτη"},
                 {"manage_services", "Διαχείριση Υπηρεσιών"},
-                {"service_bundles", "Πακέτα Υπηρεσιών"},
-                {"create_bundle", "Δημιουργία Πακέτου"},
-                {"bundle_name", "Όνομα Πακέτου"},
-                {"bundle_discount", "Έκπτωση Πακέτου"},
-                {"percentage", "Ποσοστό"},
-                {"fixed_amount", "Σταθερό Ποσό"},
-                {"last_charge_date", "Τελευταία Χρέωση"},
-                {"next_charge_date", "Επόμενη Χρέωση"},
+                {"last_paid_date", "Τελευταία Πληρωμή"},
+                {"next_payment_date", "Επόμενη Πληρωμή"},
                 {"charge_day", "Ημέρα Χρέωσης"},
                 {"start_date", "Ημερομηνία Έναρξης"},
                 {"end_date", "Ημερομηνία Λήξης"},
                 {"welcome", "Καλώς ήρθατε στο BillPilot"},
-                {"subtitle", "Η Ολοκληρωμένη Λύση Διαχείρισης Επιχείρησης"}
+                {"subtitle", "Η Ολοκληρωμένη Λύση Διαχείρισης Επιχείρησης"},
+                {"delayed_payments_notice", "Έχετε {0} καθυστερημένες πληρωμές!"},
+                {"payment_amount", "Ποσό Πληρωμής"},
+                {"client", "Πελάτης"},
+                {"process_payment", "Επεξεργασία Πληρωμής"},
+                {"edit_payment", "Επεξεργασία Πληρωμής"},
+                {"search_by", "Αναζήτηση κατά"},
+                {"all_fields", "Όλα τα Πεδία"},
+                {"payment_for_months", "Πληρωμή για {0} μήνες"},
+                {"payment_periods", "Περίοδοι Πληρωμής"}
             };
         }
 

@@ -1,2122 +1,1502 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Data;
-using System.Drawing;
-using System.IO;
+using System.Data.SQLite;
 using System.Linq;
-using System.Windows.Forms;
 
 namespace BillPilot
 {
-    // ===================== PROGRAM ENTRY POINT =====================
-    public static class Program
-    {
-        [STAThread]
-        public static void Main()
-        {
-            Application.EnableVisualStyles();
-            Application.SetCompatibleTextRenderingDefault(false);
-
-            LogManager.LogInfo("BillPilot application started");
-
-            // Load language preference before showing login
-            string savedLanguage = MainForm.LoadLanguagePreference();
-            LocalizationManager.SetLanguage(savedLanguage);
-
-            try
-            {
-                // Show login form first
-                var loginForm = new LoginForm();
-                if (loginForm.ShowDialog() == DialogResult.OK)
-                {
-                    // If login successful, show main form
-                    Application.Run(new MainForm());
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Fatal application error", ex);
-                MessageBox.Show("A fatal error occurred. Please check the log file for details.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-            finally
-            {
-                LogManager.LogInfo("BillPilot application closed");
-            }
-        }
-    }
-
-    // ===================== LOGIN FORM =====================
-    public partial class LoginForm : Form
-    {
-        private TextBox txtUsername;
-        private TextBox txtPassword;
-        private Button btnLogin;
-        private Button btnCancel;
-        private ComboBox cboLanguage;
-        private Label lblLanguage;
-        private DatabaseManager dbManager;
-
-        public LoginForm()
-        {
-            InitializeComponent();
-            dbManager = new DatabaseManager();
-        }
-
-        private void InitializeComponent()
-        {
-            this.Size = new Size(400, 250);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.Text = LocalizationManager.GetString("login_title");
-
-            // Logo detection and display
-            var logoPanel = new Panel();
-            logoPanel.Size = new Size(360, 60);
-            logoPanel.Location = new Point(20, 10);
-            logoPanel.BackColor = Color.White;
-            logoPanel.BorderStyle = BorderStyle.FixedSingle;
-
-            var logoPictureBox = new PictureBox();
-            logoPictureBox.Dock = DockStyle.Fill;
-            logoPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            LoadLogo(logoPictureBox);
-            logoPanel.Controls.Add(logoPictureBox);
-
-            // Username
-            var lblUsername = new Label();
-            lblUsername.Text = LocalizationManager.GetString("username");
-            lblUsername.Location = new Point(20, 85);
-            lblUsername.Size = new Size(100, 20);
-
-            this.txtUsername = new TextBox();
-            this.txtUsername.Location = new Point(130, 83);
-            this.txtUsername.Size = new Size(230, 20);
-            this.txtUsername.Text = "admin"; // Default for easier testing
-
-            // Password
-            var lblPassword = new Label();
-            lblPassword.Text = LocalizationManager.GetString("password");
-            lblPassword.Location = new Point(20, 115);
-            lblPassword.Size = new Size(100, 20);
-
-            this.txtPassword = new TextBox();
-            this.txtPassword.Location = new Point(130, 113);
-            this.txtPassword.Size = new Size(230, 20);
-            this.txtPassword.UseSystemPasswordChar = true;
-
-            // Language
-            this.lblLanguage = new Label();
-            this.lblLanguage.Text = LocalizationManager.GetString("language");
-            this.lblLanguage.Location = new Point(20, 145);
-            this.lblLanguage.Size = new Size(100, 20);
-
-            this.cboLanguage = new ComboBox();
-            this.cboLanguage.Location = new Point(130, 143);
-            this.cboLanguage.Size = new Size(100, 20);
-            this.cboLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.cboLanguage.Items.AddRange(new string[] { "English", "Ελληνικά" });
-            this.cboLanguage.SelectedIndex = LocalizationManager.CurrentLanguage == "en" ? 0 : 1;
-            this.cboLanguage.SelectedIndexChanged += CboLanguage_SelectedIndexChanged;
-
-            // Login Button
-            this.btnLogin = new Button();
-            this.btnLogin.Location = new Point(195, 180);
-            this.btnLogin.Size = new Size(80, 30);
-            this.btnLogin.Text = LocalizationManager.GetString("login");
-            this.btnLogin.UseVisualStyleBackColor = true;
-            this.btnLogin.Click += BtnLogin_Click;
-
-            // Cancel Button
-            this.btnCancel = new Button();
-            this.btnCancel.Location = new Point(280, 180);
-            this.btnCancel.Size = new Size(80, 30);
-            this.btnCancel.Text = LocalizationManager.GetString("cancel");
-            this.btnCancel.UseVisualStyleBackColor = true;
-            this.btnCancel.Click += (s, e) => this.Close();
-
-            // Add controls
-            this.Controls.AddRange(new Control[] {
-                logoPanel, lblUsername, this.txtUsername,
-                lblPassword, this.txtPassword,
-                lblLanguage, this.cboLanguage,
-                this.btnLogin, this.btnCancel
-            });
-
-            this.AcceptButton = this.btnLogin;
-        }
-
-        private void LoadLogo(PictureBox pictureBox)
-        {
-            string appPath = Application.StartupPath;
-            string[] logoFiles = { "logo.png", "logo.jpg", "logo.bmp", "logo.gif" };
-
-            foreach (string logoFile in logoFiles)
-            {
-                string logoPath = Path.Combine(appPath, logoFile);
-                if (File.Exists(logoPath))
-                {
-                    try
-                    {
-                        pictureBox.Image = Image.FromFile(logoPath);
-                        return;
-                    }
-                    catch
-                    {
-                        // Continue to next file if this one fails
-                    }
-                }
-            }
-
-            // Create default logo if none found
-            var bitmap = new Bitmap(300, 50);
-            using (var g = Graphics.FromImage(bitmap))
-            {
-                g.FillRectangle(Brushes.DarkBlue, 0, 0, 300, 50);
-                using (var font = new Font("Arial", 20, FontStyle.Bold))
-                {
-                    g.DrawString("BillPilot", font, Brushes.White, 85, 10);
-                }
-            }
-            pictureBox.Image = bitmap;
-        }
-
-        private void CboLanguage_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            LocalizationManager.SetLanguage(cboLanguage.SelectedIndex == 0 ? "en" : "gr");
-            UpdateUILanguage();
-        }
-
-        private void UpdateUILanguage()
-        {
-            this.Text = LocalizationManager.GetString("login_title");
-            this.Controls.OfType<Label>().FirstOrDefault(l => l.Top == 85).Text = LocalizationManager.GetString("username");
-            this.Controls.OfType<Label>().FirstOrDefault(l => l.Top == 115).Text = LocalizationManager.GetString("password");
-            this.lblLanguage.Text = LocalizationManager.GetString("language");
-            this.btnLogin.Text = LocalizationManager.GetString("login");
-            this.btnCancel.Text = LocalizationManager.GetString("cancel");
-        }
-
-        private void BtnLogin_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
-            {
-                MessageBox.Show("Please enter username and password.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
-            }
-
-            var userManager = new UserManager(dbManager);
-            bool isFirstLogin = false;
-
-            if (userManager.ValidateLogin(txtUsername.Text, txtPassword.Text, out isFirstLogin))
-            {
-                LogManager.LogInfo($"User logged in: {txtUsername.Text}");
-                SessionManager.StartSession(txtUsername.Text, isFirstLogin);
-                this.DialogResult = DialogResult.OK;
-                this.Close();
-            }
-            else
-            {
-                LogManager.LogWarning($"Failed login attempt for user: {txtUsername.Text}");
-                MessageBox.Show(LocalizationManager.GetString("login_failed"),
-                    LocalizationManager.GetString("error"),
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtPassword.Clear();
-                txtUsername.Focus();
-            }
-        }
-    }
-
-    // ===================== MAIN FORM =====================
-    public partial class MainForm : Form
+    // ===================== CLIENT MANAGER =====================
+    public class ClientManager
     {
         private DatabaseManager dbManager;
-        private ClientManager clientManager;
-        private ServiceManager serviceManager;
-        private ChargeManager chargeManager;
-        private PaymentManager paymentManager;
-        private MenuStrip menuStrip;
-        private TabControl mainTabControl;
-        private TabPage dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, reportsTab;
-        private PictureBox logoPictureBox;
-        private Timer refreshTimer;
-        private StatusStrip statusStrip;
-        private ToolStripStatusLabel statusLabel;
-        private ToolStripStatusLabel userLabel;
 
-        public MainForm()
+        public ClientManager(DatabaseManager dbManager)
         {
-            dbManager = new DatabaseManager();
-            clientManager = new ClientManager(dbManager);
-            serviceManager = new ServiceManager(dbManager);
-            chargeManager = new ChargeManager(dbManager);
-            paymentManager = new PaymentManager(dbManager);
-            InitializeComponent();
-            LoadDashboardData();
+            this.dbManager = dbManager;
+        }
 
-            // Set up session monitoring
-            SessionManager.SessionExpired += OnSessionExpired;
-
-            // Set up auto-refresh timer
-            refreshTimer = new Timer();
-            refreshTimer.Interval = 300000; // Refresh every 5 minutes
-            refreshTimer.Tick += (s, e) => LoadDashboardData();
-            refreshTimer.Start();
-
-            // Check if first login
-            if (SessionManager.IsFirstLogin)
+        public List<Client> GetAllClients()
+        {
+            var clients = new List<Client>();
+            using (var connection = dbManager.GetConnection())
             {
-                MessageBox.Show(LocalizationManager.GetString("first_login_message"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                var changePasswordForm = new ChangePasswordForm(dbManager, true);
-                changePasswordForm.ShowDialog();
-            }
-        }
-
-        private void OnSessionExpired(object sender, EventArgs e)
-        {
-            if (this.InvokeRequired)
-            {
-                this.BeginInvoke(new EventHandler(OnSessionExpired), sender, e);
-                return;
-            }
-
-            MessageBox.Show(LocalizationManager.GetString("session_expired"),
-                LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Application.Restart();
-        }
-
-        private void InitializeComponent()
-        {
-            this.Size = new Size(1200, 800);
-            this.StartPosition = FormStartPosition.CenterScreen;
-            this.WindowState = FormWindowState.Maximized;
-            this.Text = LocalizationManager.GetString("app_title");
-            this.Icon = SystemIcons.Application;
-
-            // Track user activity
-            this.MouseMove += (s, e) => SessionManager.UpdateActivity();
-            this.KeyPress += (s, e) => SessionManager.UpdateActivity();
-
-            // Create menu
-            CreateMenu();
-
-            // Create main tab control (NO navigation toolbar - fixing double menu issue)
-            mainTabControl = new TabControl();
-            mainTabControl.Dock = DockStyle.Fill;
-            mainTabControl.Font = new Font("Arial", 10);
-
-            // Standard tab appearance
-            mainTabControl.Appearance = TabAppearance.Normal;
-            mainTabControl.SizeMode = TabSizeMode.Normal;
-
-            // Create tabs
-            CreateDashboardTab();
-            CreateClientsTab();
-            CreateServicesTab();
-            CreateUpcomingPaymentsTab();
-            CreateDelayedPaymentsTab();
-            CreateReportsTab();
-
-            mainTabControl.TabPages.AddRange(new TabPage[] {
-                dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, reportsTab
-            });
-
-            // Create status bar
-            CreateStatusBar();
-
-            // Add controls in proper order
-            this.Controls.Add(mainTabControl);
-            this.Controls.Add(statusStrip);
-            this.Controls.Add(menuStrip);
-            this.MainMenuStrip = menuStrip;
-        }
-
-        private void CreateMenu()
-        {
-            menuStrip = new MenuStrip();
-
-            // File Menu
-            var fileMenu = new ToolStripMenuItem(LocalizationManager.GetString("settings"));
-
-            var changePasswordMenu = new ToolStripMenuItem(LocalizationManager.GetString("change_password"));
-            changePasswordMenu.Click += ChangePasswordMenu_Click;
-
-            var backupMenu = new ToolStripMenuItem(LocalizationManager.GetString("backup"));
-            backupMenu.Click += BackupMenu_Click;
-
-            var restoreMenu = new ToolStripMenuItem(LocalizationManager.GetString("restore"));
-            restoreMenu.Click += RestoreMenu_Click;
-
-            var logoutMenu = new ToolStripMenuItem(LocalizationManager.GetString("logout"));
-            logoutMenu.Click += (s, e) => {
-                var result = MessageBox.Show("Are you sure you want to logout?",
-                    LocalizationManager.GetString("confirm"),
-                    MessageBoxButtons.YesNo,
-                    MessageBoxIcon.Question);
-                if (result == DialogResult.Yes)
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT c.*, 
+                           COALESCE((SELECT SUM(p.Amount) 
+                                    FROM Payments p 
+                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                    FROM Clients c 
+                    WHERE c.IsActive = 1 
+                    ORDER BY c.FirstName, c.LastName", connection))
                 {
-                    Application.Restart();
-                }
-            };
-
-            var exitMenu = new ToolStripMenuItem(LocalizationManager.GetString("exit"));
-            exitMenu.Click += (s, e) => Application.Exit();
-
-            fileMenu.DropDownItems.AddRange(new ToolStripItem[] {
-                changePasswordMenu, new ToolStripSeparator(),
-                backupMenu, restoreMenu, new ToolStripSeparator(),
-                logoutMenu, new ToolStripSeparator(), exitMenu
-            });
-
-            // Language menu
-            var languageMenu = new ToolStripMenuItem(LocalizationManager.GetString("language"));
-            var englishMenu = new ToolStripMenuItem("English");
-            englishMenu.Click += (s, e) => ChangeLanguage("en");
-            var greekMenu = new ToolStripMenuItem("Ελληνικά");
-            greekMenu.Click += (s, e) => ChangeLanguage("gr");
-
-            languageMenu.DropDownItems.AddRange(new ToolStripItem[] {
-                englishMenu, greekMenu
-            });
-
-            // Help menu
-            var helpMenu = new ToolStripMenuItem("Help");
-            var aboutMenu = new ToolStripMenuItem("About BillPilot");
-            aboutMenu.Click += (s, e) => MessageBox.Show(
-                "BillPilot v1.0\n\nPortable Business Management System\n\n© 2024 BillPilot Software",
-                "About", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            helpMenu.DropDownItems.Add(aboutMenu);
-
-            menuStrip.Items.AddRange(new ToolStripItem[] {
-                fileMenu, languageMenu, helpMenu
-            });
-
-            this.Controls.Add(menuStrip);
-        }
-
-        private void CreateStatusBar()
-        {
-            statusStrip = new StatusStrip();
-
-            statusLabel = new ToolStripStatusLabel();
-            statusLabel.Text = "Ready";
-            statusLabel.Spring = true;
-            statusLabel.TextAlign = ContentAlignment.MiddleLeft;
-
-            userLabel = new ToolStripStatusLabel();
-            userLabel.Text = $"User: {SessionManager.CurrentUser}";
-            userLabel.BorderSides = ToolStripStatusLabelBorderSides.Left;
-
-            var dateLabel = new ToolStripStatusLabel();
-            dateLabel.Text = DateTime.Now.ToString("dd/MM/yyyy");
-            dateLabel.BorderSides = ToolStripStatusLabelBorderSides.Left;
-
-            statusStrip.Items.AddRange(new ToolStripItem[] {
-                statusLabel, userLabel, dateLabel
-            });
-        }
-
-        private void CreateDashboardTab()
-        {
-            dashboardTab = new TabPage(LocalizationManager.GetString("dashboard"));
-            dashboardTab.BackColor = Color.FromArgb(248, 249, 250);
-
-            // Logo section
-            var logoPanel = new Panel();
-            logoPanel.Location = new Point(20, 20);
-            logoPanel.Size = new Size(200, 100);
-            logoPanel.BackColor = Color.White;
-            logoPanel.BorderStyle = BorderStyle.FixedSingle;
-
-            logoPictureBox = new PictureBox();
-            logoPictureBox.Dock = DockStyle.Fill;
-            logoPictureBox.SizeMode = PictureBoxSizeMode.Zoom;
-            logoPictureBox.BackColor = Color.White;
-
-            // Try to load logo
-            LoadLogo();
-
-            logoPanel.Controls.Add(logoPictureBox);
-
-            // Welcome section
-            var welcomeLabel = new Label();
-            welcomeLabel.Text = LocalizationManager.GetString("welcome");
-            welcomeLabel.Font = new Font("Arial", 18, FontStyle.Bold);
-            welcomeLabel.ForeColor = Color.FromArgb(51, 51, 51);
-            welcomeLabel.Location = new Point(240, 30);
-            welcomeLabel.AutoSize = true;
-
-            var subtitleLabel = new Label();
-            subtitleLabel.Text = LocalizationManager.GetString("subtitle");
-            subtitleLabel.Font = new Font("Arial", 12, FontStyle.Italic);
-            subtitleLabel.ForeColor = Color.FromArgb(108, 117, 125);
-            subtitleLabel.Location = new Point(240, 65);
-            subtitleLabel.AutoSize = true;
-
-            // Stats cards
-            var statsPanel = new FlowLayoutPanel();
-            statsPanel.Location = new Point(20, 140);
-            statsPanel.Size = new Size(1140, 150);
-            statsPanel.FlowDirection = FlowDirection.LeftToRight;
-            statsPanel.WrapContents = false;
-            statsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-
-            // Create stat cards
-            var clientsCard = CreateStatCard(LocalizationManager.GetString("total_clients"), "0", Color.FromArgb(52, 144, 220));
-            var servicesCard = CreateStatCard(LocalizationManager.GetString("total_services"), "0", Color.FromArgb(92, 184, 92));
-            var revenueCard = CreateStatCard(LocalizationManager.GetString("total_revenue"), "€0", Color.FromArgb(240, 173, 78));
-            var outstandingCard = CreateStatCard(LocalizationManager.GetString("total_outstanding"), "€0", Color.FromArgb(217, 83, 79));
-
-            statsPanel.Controls.AddRange(new Control[] {
-                clientsCard, servicesCard, revenueCard, outstandingCard
-            });
-
-            // Quick actions section
-            var quickActionsLabel = new Label();
-            quickActionsLabel.Text = LocalizationManager.GetString("quick_actions");
-            quickActionsLabel.Font = new Font("Arial", 14, FontStyle.Bold);
-            quickActionsLabel.Location = new Point(20, 310);
-            quickActionsLabel.AutoSize = true;
-
-            var quickActionsPanel = CreateQuickActionsPanel();
-
-            // Recent activity section
-            var activityLabel = new Label();
-            activityLabel.Text = LocalizationManager.GetString("recent_activity");
-            activityLabel.Font = new Font("Arial", 14, FontStyle.Bold);
-            activityLabel.Location = new Point(620, 310);
-            activityLabel.AutoSize = true;
-
-            var activityPanel = CreateRecentActivityPanel();
-
-            dashboardTab.Controls.AddRange(new Control[] {
-                logoPanel, welcomeLabel, subtitleLabel, statsPanel,
-                quickActionsLabel, quickActionsPanel, activityLabel, activityPanel
-            });
-        }
-
-        private Panel CreateQuickActionsPanel()
-        {
-            var panel = new Panel();
-            panel.Location = new Point(20, 340);
-            panel.Size = new Size(580, 300);
-            panel.BackColor = Color.White;
-            panel.BorderStyle = BorderStyle.FixedSingle;
-            panel.Anchor = AnchorStyles.Top | AnchorStyles.Left;
-
-            var btnAddClient = new Button();
-            btnAddClient.Text = LocalizationManager.GetString("add_client");
-            btnAddClient.Location = new Point(20, 20);
-            btnAddClient.Size = new Size(250, 40);
-            btnAddClient.UseVisualStyleBackColor = true;
-            btnAddClient.Font = new Font("Arial", 10);
-            btnAddClient.Image = SystemIcons.Shield.ToBitmap();
-            btnAddClient.ImageAlign = ContentAlignment.MiddleLeft;
-            btnAddClient.TextAlign = ContentAlignment.MiddleRight;
-            btnAddClient.Click += (s, e) => {
-                mainTabControl.SelectedTab = clientsTab;
-                var clientListControl = clientsTab.Controls.OfType<ClientListControl>().FirstOrDefault();
-                clientListControl?.ShowAddClientDialog();
-            };
-
-            var btnAddService = new Button();
-            btnAddService.Text = LocalizationManager.GetString("add_service");
-            btnAddService.Location = new Point(290, 20);
-            btnAddService.Size = new Size(250, 40);
-            btnAddService.UseVisualStyleBackColor = true;
-            btnAddService.Font = new Font("Arial", 10);
-            btnAddService.Click += (s, e) => {
-                mainTabControl.SelectedTab = servicesTab;
-                var serviceListControl = servicesTab.Controls.OfType<ServiceListControl>().FirstOrDefault();
-                serviceListControl?.ShowAddServiceDialog();
-            };
-
-            var btnAddCharge = new Button();
-            btnAddCharge.Text = LocalizationManager.GetString("add_charge");
-            btnAddCharge.Location = new Point(20, 80);
-            btnAddCharge.Size = new Size(250, 40);
-            btnAddCharge.UseVisualStyleBackColor = true;
-            btnAddCharge.Font = new Font("Arial", 10);
-            btnAddCharge.Click += (s, e) => {
-                var addChargeForm = new AddChargeForm(dbManager);
-                if (addChargeForm.ShowDialog() == DialogResult.OK)
-                {
-                    LoadDashboardData();
-                }
-            };
-
-            var btnAddPayment = new Button();
-            btnAddPayment.Text = LocalizationManager.GetString("add_payment");
-            btnAddPayment.Location = new Point(290, 80);
-            btnAddPayment.Size = new Size(250, 40);
-            btnAddPayment.UseVisualStyleBackColor = true;
-            btnAddPayment.Font = new Font("Arial", 10);
-            btnAddPayment.Click += (s, e) => {
-                var addPaymentForm = new AddPaymentForm(dbManager);
-                if (addPaymentForm.ShowDialog() == DialogResult.OK)
-                {
-                    LoadDashboardData();
-                }
-            };
-
-            var btnGenerateReport = new Button();
-            btnGenerateReport.Text = LocalizationManager.GetString("generate_report");
-            btnGenerateReport.Location = new Point(20, 140);
-            btnGenerateReport.Size = new Size(520, 40);
-            btnGenerateReport.UseVisualStyleBackColor = true;
-            btnGenerateReport.Font = new Font("Arial", 10);
-            btnGenerateReport.Click += (s, e) => mainTabControl.SelectedTab = reportsTab;
-
-            var btnViewCharges = new Button();
-            btnViewCharges.Text = LocalizationManager.GetString("upcoming_payments");
-            btnViewCharges.Location = new Point(20, 200);
-            btnViewCharges.Size = new Size(250, 40);
-            btnViewCharges.UseVisualStyleBackColor = true;
-            btnViewCharges.Font = new Font("Arial", 10);
-            btnViewCharges.Click += (s, e) => mainTabControl.SelectedTab = upcomingTab;
-
-            var btnViewDelayed = new Button();
-            btnViewDelayed.Text = LocalizationManager.GetString("delayed_payments");
-            btnViewDelayed.Location = new Point(290, 200);
-            btnViewDelayed.Size = new Size(250, 40);
-            btnViewDelayed.UseVisualStyleBackColor = true;
-            btnViewDelayed.Font = new Font("Arial", 10);
-            btnViewDelayed.Click += (s, e) => mainTabControl.SelectedTab = delayedTab;
-
-            panel.Controls.AddRange(new Control[] {
-                btnAddClient, btnAddService, btnAddCharge, btnAddPayment,
-                btnGenerateReport, btnViewCharges, btnViewDelayed
-            });
-
-            return panel;
-        }
-
-        private void LoadLogo()
-        {
-            string appPath = Application.StartupPath;
-            string[] logoFiles = { "logo.png", "logo.jpg", "logo.bmp", "logo.gif" };
-
-            foreach (string logoFile in logoFiles)
-            {
-                string logoPath = Path.Combine(appPath, logoFile);
-                if (File.Exists(logoPath))
-                {
-                    try
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        logoPictureBox.Image = Image.FromFile(logoPath);
-                        return;
-                    }
-                    catch
-                    {
-                        // Continue to next file if this one fails
-                    }
-                }
-            }
-
-            // If no logo found, create a simple default
-            CreateDefaultLogo();
-        }
-
-        private void CreateDefaultLogo()
-        {
-            var bitmap = new Bitmap(150, 80);
-            using (var g = Graphics.FromImage(bitmap))
-            {
-                g.FillRectangle(Brushes.DarkBlue, 0, 0, 150, 80);
-                g.FillRectangle(Brushes.White, 10, 10, 130, 60);
-                using (var font = new Font("Arial", 16, FontStyle.Bold))
-                {
-                    g.DrawString("BillPilot", font, Brushes.DarkBlue, 25, 25);
-                }
-            }
-            logoPictureBox.Image = bitmap;
-        }
-
-        private Panel CreateStatCard(string title, string value, Color color)
-        {
-            var card = new Panel();
-            card.Size = new Size(270, 120);
-            card.BackColor = Color.White;
-            card.BorderStyle = BorderStyle.FixedSingle;
-            card.Margin = new Padding(10);
-
-            var colorBar = new Panel();
-            colorBar.BackColor = color;
-            colorBar.Dock = DockStyle.Top;
-            colorBar.Height = 4;
-
-            var iconPanel = new Panel();
-            iconPanel.Size = new Size(50, 50);
-            iconPanel.Location = new Point(20, 35);
-            iconPanel.BackColor = Color.FromArgb(30, color);
-
-            var valueLabel = new Label();
-            valueLabel.Text = value;
-            valueLabel.Font = new Font("Arial", 24, FontStyle.Bold);
-            valueLabel.ForeColor = color;
-            valueLabel.Location = new Point(80, 25);
-            valueLabel.AutoSize = true;
-            valueLabel.Name = "value_" + title.Replace(" ", "");
-
-            var titleLabel = new Label();
-            titleLabel.Text = title;
-            titleLabel.Font = new Font("Arial", 12);
-            titleLabel.ForeColor = Color.FromArgb(108, 117, 125);
-            titleLabel.Location = new Point(80, 65);
-            titleLabel.AutoSize = true;
-
-            card.Controls.AddRange(new Control[] { colorBar, iconPanel, valueLabel, titleLabel });
-            return card;
-        }
-
-        private Panel CreateRecentActivityPanel()
-        {
-            var panel = new Panel();
-            panel.Location = new Point(620, 340);
-            panel.Size = new Size(540, 300);
-            panel.BackColor = Color.White;
-            panel.BorderStyle = BorderStyle.FixedSingle;
-            panel.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
-
-            var activityList = new ListBox();
-            activityList.Dock = DockStyle.Fill;
-            activityList.Font = new Font("Arial", 10);
-            activityList.BorderStyle = BorderStyle.None;
-            activityList.Name = "activityList";
-            activityList.DrawMode = DrawMode.OwnerDrawFixed;
-            activityList.ItemHeight = 30;
-            activityList.DrawItem += ActivityList_DrawItem;
-
-            // Load recent activities
-            LoadRecentActivities(activityList);
-
-            panel.Controls.Add(activityList);
-            return panel;
-        }
-
-        private void ActivityList_DrawItem(object sender, DrawItemEventArgs e)
-        {
-            if (e.Index < 0) return;
-
-            e.DrawBackground();
-            var item = ((ListBox)sender).Items[e.Index].ToString();
-            var isPayment = item.StartsWith("Payment:");
-            var brush = isPayment ? Brushes.Green : Brushes.DarkRed;
-
-            e.Graphics.DrawString(item, e.Font, brush, e.Bounds.Left + 5, e.Bounds.Top + 8);
-            e.DrawFocusRectangle();
-        }
-
-        private void LoadRecentActivities(ListBox listBox)
-        {
-            try
-            {
-                listBox.Items.Clear();
-
-                // Get recent charges
-                var recentCharges = chargeManager.GetRecentCharges(5);
-                foreach (var charge in recentCharges)
-                {
-                    listBox.Items.Add($"Charge: {charge.ClientName} - €{charge.Amount:F2} ({charge.ChargeDate:dd/MM/yyyy})");
-                }
-
-                // Get recent payments
-                var recentPayments = paymentManager.GetRecentPayments(5);
-                foreach (var payment in recentPayments)
-                {
-                    listBox.Items.Add($"Payment: {payment.ClientName} - €{payment.Amount:F2} ({payment.PaymentDate:dd/MM/yyyy})");
-                }
-
-                if (listBox.Items.Count == 0)
-                {
-                    listBox.Items.Add("No recent activity to display.");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error loading recent activities", ex);
-                listBox.Items.Clear();
-                listBox.Items.Add("Error loading activities.");
-            }
-        }
-
-        private void CreateClientsTab()
-        {
-            clientsTab = new TabPage(LocalizationManager.GetString("clients"));
-
-            var clientListControl = new ClientListControl(dbManager);
-            clientListControl.Dock = DockStyle.Fill;
-            clientsTab.Controls.Add(clientListControl);
-        }
-
-        private void CreateServicesTab()
-        {
-            servicesTab = new TabPage(LocalizationManager.GetString("services"));
-
-            var serviceListControl = new ServiceListControl(dbManager);
-            serviceListControl.Dock = DockStyle.Fill;
-            servicesTab.Controls.Add(serviceListControl);
-        }
-
-        private void CreateUpcomingPaymentsTab()
-        {
-            upcomingTab = new TabPage(LocalizationManager.GetString("upcoming_payments"));
-
-            var upcomingControl = new UpcomingPaymentsControl(dbManager);
-            upcomingControl.Dock = DockStyle.Fill;
-            upcomingTab.Controls.Add(upcomingControl);
-        }
-
-        private void CreateDelayedPaymentsTab()
-        {
-            delayedTab = new TabPage(LocalizationManager.GetString("delayed_payments"));
-
-            var delayedControl = new DelayedPaymentsControl(dbManager);
-            delayedControl.Dock = DockStyle.Fill;
-            delayedTab.Controls.Add(delayedControl);
-        }
-
-        private void CreateReportsTab()
-        {
-            reportsTab = new TabPage(LocalizationManager.GetString("reports"));
-
-            var reportsControl = new ReportsControl(dbManager);
-            reportsControl.Dock = DockStyle.Fill;
-            reportsTab.Controls.Add(reportsControl);
-        }
-
-        private void LoadDashboardData()
-        {
-            if (this.InvokeRequired)
-            {
-                this.BeginInvoke(new Action(LoadDashboardData));
-                return;
-            }
-
-            try
-            {
-                statusLabel.Text = "Loading dashboard data...";
-
-                // Update client count
-                var clients = clientManager.GetAllClients();
-                if (clients != null)
-                    UpdateStatCard("total_clients", clients.Count.ToString());
-
-                // Update services count
-                var services = serviceManager.GetAllServices();
-                if (services != null)
-                    UpdateStatCard("total_services", services.Count.ToString());
-
-                // Update revenue
-                var totalRevenue = paymentManager.GetTotalRevenue();
-                UpdateStatCard("total_revenue", $"€{totalRevenue:F2}");
-
-                // Update outstanding
-                var totalOutstanding = chargeManager.GetTotalOutstanding();
-                UpdateStatCard("total_outstanding", $"€{totalOutstanding:F2}");
-
-                // Update recent activities if dashboard is selected
-                if (mainTabControl.SelectedTab == dashboardTab)
-                {
-                    var activityPanel = dashboardTab.Controls.OfType<Panel>()
-                        .FirstOrDefault(p => p.Location.X == 620 && p.Location.Y == 340);
-                    if (activityPanel != null)
-                    {
-                        var listBox = activityPanel.Controls.Find("activityList", false).FirstOrDefault() as ListBox;
-                        if (listBox != null)
+                        while (reader.Read())
                         {
-                            LoadRecentActivities(listBox);
+                            clients.Add(MapClientFromReader(reader));
                         }
                     }
                 }
-
-                statusLabel.Text = "Ready";
             }
-            catch (Exception ex)
+            return clients;
+        }
+
+        public Client GetClient(int id)
+        {
+            using (var connection = dbManager.GetConnection())
             {
-                LogManager.LogError("Error loading dashboard data", ex);
-                statusLabel.Text = "Error loading data";
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT c.*, 
+                           COALESCE((SELECT SUM(p.Amount) 
+                                    FROM Payments p 
+                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                    FROM Clients c 
+                    WHERE c.Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapClientFromReader(reader);
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        public int CreateClient(Client client)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    INSERT INTO Clients (FirstName, LastName, BusinessName, VATNumber, Email, Phone, Address, Category, Tags, CreditLimit, PaymentTermsDays, Notes)
+                    VALUES (@firstName, @lastName, @businessName, @vatNumber, @email, @phone, @address, @category, @tags, @creditLimit, @paymentTerms, @notes);
+                    SELECT last_insert_rowid();", connection))
+                {
+                    cmd.Parameters.AddWithValue("@firstName", client.FirstName);
+                    cmd.Parameters.AddWithValue("@lastName", client.LastName);
+                    cmd.Parameters.AddWithValue("@businessName", client.BusinessName ?? "");
+                    cmd.Parameters.AddWithValue("@vatNumber", client.VATNumber ?? "");
+                    cmd.Parameters.AddWithValue("@email", client.Email ?? "");
+                    cmd.Parameters.AddWithValue("@phone", client.Phone ?? "");
+                    cmd.Parameters.AddWithValue("@address", client.Address ?? "");
+                    cmd.Parameters.AddWithValue("@category", client.Category ?? "Regular");
+                    cmd.Parameters.AddWithValue("@tags", client.Tags ?? "");
+                    cmd.Parameters.AddWithValue("@creditLimit", client.CreditLimit);
+                    cmd.Parameters.AddWithValue("@paymentTerms", client.PaymentTermsDays);
+                    cmd.Parameters.AddWithValue("@notes", client.Notes ?? "");
+
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
             }
         }
 
-        private void UpdateStatCard(string cardName, string value)
+        public void UpdateClient(Client client)
         {
-            var cardIdentifier = "value_" + cardName.Replace(" ", "");
-            foreach (Control control in dashboardTab.Controls)
+            using (var connection = dbManager.GetConnection())
             {
-                if (control is FlowLayoutPanel panel)
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    UPDATE Clients SET 
+                        FirstName = @firstName, 
+                        LastName = @lastName, 
+                        BusinessName = @businessName, 
+                        VATNumber = @vatNumber, 
+                        Email = @email, 
+                        Phone = @phone, 
+                        Address = @address, 
+                        Category = @category,
+                        Tags = @tags,
+                        CreditLimit = @creditLimit, 
+                        PaymentTermsDays = @paymentTerms,
+                        Notes = @notes
+                    WHERE Id = @id", connection))
                 {
-                    var valueLabel = panel.Controls.Find(cardIdentifier, true).FirstOrDefault() as Label;
-                    if (valueLabel != null)
+                    cmd.Parameters.AddWithValue("@id", client.Id);
+                    cmd.Parameters.AddWithValue("@firstName", client.FirstName);
+                    cmd.Parameters.AddWithValue("@lastName", client.LastName);
+                    cmd.Parameters.AddWithValue("@businessName", client.BusinessName ?? "");
+                    cmd.Parameters.AddWithValue("@vatNumber", client.VATNumber ?? "");
+                    cmd.Parameters.AddWithValue("@email", client.Email ?? "");
+                    cmd.Parameters.AddWithValue("@phone", client.Phone ?? "");
+                    cmd.Parameters.AddWithValue("@address", client.Address ?? "");
+                    cmd.Parameters.AddWithValue("@category", client.Category ?? "Regular");
+                    cmd.Parameters.AddWithValue("@tags", client.Tags ?? "");
+                    cmd.Parameters.AddWithValue("@creditLimit", client.CreditLimit);
+                    cmd.Parameters.AddWithValue("@paymentTerms", client.PaymentTermsDays);
+                    cmd.Parameters.AddWithValue("@notes", client.Notes ?? "");
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void DeleteClient(int clientId)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
                     {
-                        valueLabel.Text = value;
+                        // Check for unpaid payments
+                        using (var checkCmd = new SQLiteCommand(
+                            "SELECT COUNT(*) FROM Payments WHERE ClientId = @id AND IsPaid = 0", connection))
+                        {
+                            checkCmd.Parameters.AddWithValue("@id", clientId);
+                            var unpaidPayments = Convert.ToInt32(checkCmd.ExecuteScalar());
+                            if (unpaidPayments > 0)
+                            {
+                                throw new InvalidOperationException($"Cannot delete client with {unpaidPayments} unpaid payments.");
+                            }
+                        }
+
+                        // Soft delete
+                        using (var cmd = new SQLiteCommand("UPDATE Clients SET IsActive = 0 WHERE Id = @id", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@id", clientId);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public List<Client> SearchClients(string searchTerm, string searchField = "all")
+        {
+            var clients = new List<Client>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                string query;
+
+                // Build parameterized query based on search field
+                switch (searchField.ToLower())
+                {
+                    case "firstname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.FirstName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
                         break;
-                    }
+                    case "lastname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.LastName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    case "businessname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.BusinessName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    case "vatnumber":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.VATNumber LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    default:
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND (c.FirstName LIKE @search OR c.LastName LIKE @search 
+                                                  OR c.BusinessName LIKE @search OR c.VATNumber LIKE @search 
+                                                  OR c.Email LIKE @search OR c.Phone LIKE @search)
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
                 }
-            }
-        }
 
-        private void ChangeLanguage(string language)
-        {
-            LocalizationManager.SetLanguage(language);
-
-            // Save language preference to a settings file
-            SaveLanguagePreference(language);
-
-            // Update all UI elements without restarting
-            UpdateAllUITexts();
-
-            MessageBox.Show("Language changed successfully!",
-                LocalizationManager.GetString("success"),
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-
-        private void SaveLanguagePreference(string language)
-        {
-            try
-            {
-                string settingsPath = Path.Combine(Application.StartupPath, "settings.ini");
-                File.WriteAllText(settingsPath, $"Language={language}");
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error saving language preference", ex);
-            }
-        }
-
-        public static string LoadLanguagePreference()
-        {
-            try
-            {
-                string settingsPath = Path.Combine(Application.StartupPath, "settings.ini");
-                if (File.Exists(settingsPath))
+                using (var cmd = new SQLiteCommand(query, connection))
                 {
-                    string content = File.ReadAllText(settingsPath);
-                    if (content.StartsWith("Language="))
+                    if (!string.IsNullOrEmpty(searchTerm))
                     {
-                        return content.Substring(9);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error loading language preference", ex);
-            }
-            return "en"; // Default to English
-        }
-
-        private void UpdateAllUITexts()
-        {
-            // Update form title
-            this.Text = LocalizationManager.GetString("app_title");
-
-            // Update menu items
-            menuStrip.Items[0].Text = LocalizationManager.GetString("settings");
-            var fileMenu = menuStrip.Items[0] as ToolStripMenuItem;
-            fileMenu.DropDownItems[0].Text = LocalizationManager.GetString("change_password");
-            fileMenu.DropDownItems[2].Text = LocalizationManager.GetString("backup");
-            fileMenu.DropDownItems[3].Text = LocalizationManager.GetString("restore");
-            fileMenu.DropDownItems[5].Text = LocalizationManager.GetString("logout");
-            fileMenu.DropDownItems[7].Text = LocalizationManager.GetString("exit");
-
-            menuStrip.Items[1].Text = LocalizationManager.GetString("language");
-
-            // Update tab titles
-            dashboardTab.Text = LocalizationManager.GetString("dashboard");
-            clientsTab.Text = LocalizationManager.GetString("clients");
-            servicesTab.Text = LocalizationManager.GetString("services");
-            upcomingTab.Text = LocalizationManager.GetString("upcoming_payments");
-            delayedTab.Text = LocalizationManager.GetString("delayed_payments");
-            reportsTab.Text = LocalizationManager.GetString("reports");
-
-            // Update dashboard elements
-            UpdateDashboardTexts();
-
-            // Update status bar
-            statusLabel.Text = "Ready";
-            userLabel.Text = $"User: {SessionManager.CurrentUser}";
-
-            // Refresh current tab's content
-            if (mainTabControl.SelectedTab == clientsTab)
-            {
-                var clientControl = clientsTab.Controls.OfType<ClientListControl>().FirstOrDefault();
-                clientControl?.UpdateUILanguage();
-            }
-            else if (mainTabControl.SelectedTab == servicesTab)
-            {
-                var serviceControl = servicesTab.Controls.OfType<ServiceListControl>().FirstOrDefault();
-                serviceControl?.UpdateUILanguage();
-            }
-            // Add similar updates for other tabs as needed
-        }
-
-        private void UpdateDashboardTexts()
-        {
-            // Find and update welcome label
-            var welcomeLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.X == 240 && l.Location.Y == 30);
-            if (welcomeLabel != null)
-                welcomeLabel.Text = LocalizationManager.GetString("welcome");
-
-            // Find and update subtitle label
-            var subtitleLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.X == 240 && l.Location.Y == 65);
-            if (subtitleLabel != null)
-                subtitleLabel.Text = LocalizationManager.GetString("subtitle");
-
-            // Update quick actions label
-            var quickActionsLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 310 && l.Location.X == 20);
-            if (quickActionsLabel != null)
-                quickActionsLabel.Text = LocalizationManager.GetString("quick_actions");
-
-            // Update recent activity label
-            var activityLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 310 && l.Location.X == 620);
-            if (activityLabel != null)
-                activityLabel.Text = LocalizationManager.GetString("recent_activity");
-
-            // Update stat card titles
-            UpdateStatCardTitles();
-
-            // Update quick action buttons
-            UpdateQuickActionButtons();
-        }
-
-        private void UpdateStatCardTitles()
-        {
-            var statsPanel = dashboardTab.Controls.OfType<FlowLayoutPanel>()
-                .FirstOrDefault(p => p.Location.Y == 140);
-
-            if (statsPanel != null)
-            {
-                var cards = statsPanel.Controls.OfType<Panel>().ToList();
-                if (cards.Count >= 4)
-                {
-                    UpdateStatCardTitle(cards[0], LocalizationManager.GetString("total_clients"));
-                    UpdateStatCardTitle(cards[1], LocalizationManager.GetString("total_services"));
-                    UpdateStatCardTitle(cards[2], LocalizationManager.GetString("total_revenue"));
-                    UpdateStatCardTitle(cards[3], LocalizationManager.GetString("total_outstanding"));
-                }
-            }
-        }
-
-        private void UpdateStatCardTitle(Panel card, string newTitle)
-        {
-            var titleLabel = card.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 65);
-            if (titleLabel != null)
-                titleLabel.Text = newTitle;
-        }
-
-        private void UpdateQuickActionButtons()
-        {
-            var quickActionsPanel = dashboardTab.Controls.OfType<Panel>()
-                .FirstOrDefault(p => p.Location.X == 20 && p.Location.Y == 340);
-
-            if (quickActionsPanel != null)
-            {
-                var buttons = quickActionsPanel.Controls.OfType<Button>().ToList();
-                if (buttons.Count >= 7)
-                {
-                    buttons[0].Text = LocalizationManager.GetString("add_client");
-                    buttons[1].Text = LocalizationManager.GetString("add_service");
-                    buttons[2].Text = LocalizationManager.GetString("add_charge");
-                    buttons[3].Text = LocalizationManager.GetString("add_payment");
-                    buttons[4].Text = LocalizationManager.GetString("generate_report");
-                    buttons[5].Text = LocalizationManager.GetString("upcoming_payments");
-                    buttons[6].Text = LocalizationManager.GetString("delayed_payments");
-                }
-            }
-        }
-
-        private void ChangePasswordMenu_Click(object sender, EventArgs e)
-        {
-            var changePasswordForm = new ChangePasswordForm(dbManager);
-            changePasswordForm.ShowDialog();
-        }
-
-        private void BackupMenu_Click(object sender, EventArgs e)
-        {
-            using (var saveDialog = new SaveFileDialog())
-            {
-                saveDialog.Filter = "Database files (*.db)|*.db|All files (*.*)|*.*";
-                saveDialog.DefaultExt = "db";
-                saveDialog.FileName = $"BillPilot_Backup_{DateTime.Now:yyyyMMdd_HHmmss}.db";
-
-                if (saveDialog.ShowDialog() == DialogResult.OK)
-                {
-                    try
-                    {
-                        dbManager.BackupDatabase(saveDialog.FileName);
-                        MessageBox.Show(LocalizationManager.GetString("backup_success"),
-                            LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        LogManager.LogInfo($"Database backed up to: {saveDialog.FileName}");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogError("Backup failed", ex);
-                        MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-            }
-        }
-
-        private void RestoreMenu_Click(object sender, EventArgs e)
-        {
-            var result = MessageBox.Show(
-                "Restoring a database will replace all current data. Are you sure you want to continue?",
-                LocalizationManager.GetString("warning"),
-                MessageBoxButtons.YesNo,
-                MessageBoxIcon.Warning);
-
-            if (result != DialogResult.Yes) return;
-
-            using (var openDialog = new OpenFileDialog())
-            {
-                openDialog.Filter = "Database files (*.db)|*.db|All files (*.*)|*.*";
-
-                if (openDialog.ShowDialog() == DialogResult.OK)
-                {
-                    try
-                    {
-                        dbManager.RestoreDatabase(openDialog.FileName);
-                        MessageBox.Show(LocalizationManager.GetString("restore_success"),
-                            LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        LogManager.LogInfo($"Database restored from: {openDialog.FileName}");
-                        LoadDashboardData();
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogError("Restore failed", ex);
-                        MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                }
-            }
-        }
-
-        protected override void OnFormClosed(FormClosedEventArgs e)
-        {
-            base.OnFormClosed(e);
-            SessionManager.EndSession();
-            refreshTimer?.Dispose();
-        }
-    }
-
-    // ===================== CLIENT EDIT FORM =====================
-    public partial class ClientEditForm : Form
-    {
-        private DatabaseManager dbManager;
-        private ClientManager clientManager;
-        private Client client;
-        private bool isEdit;
-
-        private TextBox txtFirstName, txtLastName, txtBusinessName, txtVATNumber;
-        private TextBox txtEmail, txtPhone, txtAddress, txtTags, txtNotes;
-        private NumericUpDown numCreditLimit, numPaymentTerms;
-        private ComboBox cboCategory;
-        private Button btnSave, btnCancel, btnViewHistory, btnManageServices;
-
-        public ClientEditForm(DatabaseManager dbManager, Client client)
-        {
-            this.dbManager = dbManager;
-            this.clientManager = new ClientManager(dbManager);
-            this.client = client;
-            this.isEdit = client != null;
-
-            InitializeComponent();
-            LoadClientData();
-        }
-
-        private void InitializeComponent()
-        {
-            this.Size = new Size(600, 650);
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.Text = isEdit ? LocalizationManager.GetString("edit_client") : LocalizationManager.GetString("add_client");
-
-            int yPos = 20;
-            int labelWidth = 120;
-            int textBoxWidth = 400;
-
-            // First Name
-            var lblFirstName = new Label();
-            lblFirstName.Text = LocalizationManager.GetString("first_name") + ":";
-            lblFirstName.Location = new Point(20, yPos);
-            lblFirstName.Size = new Size(labelWidth, 20);
-            txtFirstName = new TextBox();
-            txtFirstName.Location = new Point(150, yPos);
-            txtFirstName.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Last Name
-            var lblLastName = new Label();
-            lblLastName.Text = LocalizationManager.GetString("last_name") + ":";
-            lblLastName.Location = new Point(20, yPos);
-            lblLastName.Size = new Size(labelWidth, 20);
-            txtLastName = new TextBox();
-            txtLastName.Location = new Point(150, yPos);
-            txtLastName.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Business Name
-            var lblBusinessName = new Label();
-            lblBusinessName.Text = LocalizationManager.GetString("business_name") + ":";
-            lblBusinessName.Location = new Point(20, yPos);
-            lblBusinessName.Size = new Size(labelWidth, 20);
-            txtBusinessName = new TextBox();
-            txtBusinessName.Location = new Point(150, yPos);
-            txtBusinessName.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // VAT Number
-            var lblVATNumber = new Label();
-            lblVATNumber.Text = LocalizationManager.GetString("vat_number") + ":";
-            lblVATNumber.Location = new Point(20, yPos);
-            lblVATNumber.Size = new Size(labelWidth, 20);
-            txtVATNumber = new TextBox();
-            txtVATNumber.Location = new Point(150, yPos);
-            txtVATNumber.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Email
-            var lblEmail = new Label();
-            lblEmail.Text = LocalizationManager.GetString("email") + ":";
-            lblEmail.Location = new Point(20, yPos);
-            lblEmail.Size = new Size(labelWidth, 20);
-            txtEmail = new TextBox();
-            txtEmail.Location = new Point(150, yPos);
-            txtEmail.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Phone
-            var lblPhone = new Label();
-            lblPhone.Text = LocalizationManager.GetString("phone") + ":";
-            lblPhone.Location = new Point(20, yPos);
-            lblPhone.Size = new Size(labelWidth, 20);
-            txtPhone = new TextBox();
-            txtPhone.Location = new Point(150, yPos);
-            txtPhone.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Address
-            var lblAddress = new Label();
-            lblAddress.Text = LocalizationManager.GetString("address") + ":";
-            lblAddress.Location = new Point(20, yPos);
-            lblAddress.Size = new Size(labelWidth, 20);
-            txtAddress = new TextBox();
-            txtAddress.Location = new Point(150, yPos);
-            txtAddress.Size = new Size(textBoxWidth, 60);
-            txtAddress.Multiline = true;
-            txtAddress.ScrollBars = ScrollBars.Vertical;
-            yPos += 70;
-
-            // Category
-            var lblCategory = new Label();
-            lblCategory.Text = LocalizationManager.GetString("category") + ":";
-            lblCategory.Location = new Point(20, yPos);
-            lblCategory.Size = new Size(labelWidth, 20);
-            cboCategory = new ComboBox();
-            cboCategory.Location = new Point(150, yPos);
-            cboCategory.Size = new Size(200, 20);
-            cboCategory.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboCategory.Items.AddRange(new string[] { "Regular", "VIP", "New", "Inactive" });
-            cboCategory.SelectedIndex = 0;
-            yPos += 30;
-
-            // Tags
-            var lblTags = new Label();
-            lblTags.Text = LocalizationManager.GetString("tags") + ":";
-            lblTags.Location = new Point(20, yPos);
-            lblTags.Size = new Size(labelWidth, 20);
-            txtTags = new TextBox();
-            txtTags.Location = new Point(150, yPos);
-            txtTags.Size = new Size(textBoxWidth, 20);
-            yPos += 30;
-
-            // Credit Limit
-            var lblCreditLimit = new Label();
-            lblCreditLimit.Text = LocalizationManager.GetString("credit_limit") + ":";
-            lblCreditLimit.Location = new Point(20, yPos);
-            lblCreditLimit.Size = new Size(labelWidth, 20);
-            numCreditLimit = new NumericUpDown();
-            numCreditLimit.Location = new Point(150, yPos);
-            numCreditLimit.Size = new Size(120, 20);
-            numCreditLimit.Maximum = 999999;
-            numCreditLimit.DecimalPlaces = 2;
-            numCreditLimit.ThousandsSeparator = true;
-            yPos += 30;
-
-            // Payment Terms
-            var lblPaymentTerms = new Label();
-            lblPaymentTerms.Text = LocalizationManager.GetString("payment_terms") + ":";
-            lblPaymentTerms.Location = new Point(20, yPos);
-            lblPaymentTerms.Size = new Size(labelWidth, 20);
-            numPaymentTerms = new NumericUpDown();
-            numPaymentTerms.Location = new Point(150, yPos);
-            numPaymentTerms.Size = new Size(120, 20);
-            numPaymentTerms.Maximum = 365;
-            numPaymentTerms.Value = 30;
-            yPos += 30;
-
-            // Notes
-            var lblNotes = new Label();
-            lblNotes.Text = LocalizationManager.GetString("notes") + ":";
-            lblNotes.Location = new Point(20, yPos);
-            lblNotes.Size = new Size(labelWidth, 20);
-            txtNotes = new TextBox();
-            txtNotes.Location = new Point(150, yPos);
-            txtNotes.Size = new Size(textBoxWidth, 60);
-            txtNotes.Multiline = true;
-            txtNotes.ScrollBars = ScrollBars.Vertical;
-            yPos += 70;
-
-            // Buttons
-            if (isEdit)
-            {
-                btnViewHistory = new Button();
-                btnViewHistory.Text = LocalizationManager.GetString("contact_history");
-                btnViewHistory.Location = new Point(20, yPos);
-                btnViewHistory.Size = new Size(120, 30);
-                btnViewHistory.UseVisualStyleBackColor = true;
-                btnViewHistory.Click += BtnViewHistory_Click;
-
-                btnManageServices = new Button();
-                btnManageServices.Text = LocalizationManager.GetString("manage_services");
-                btnManageServices.Location = new Point(150, yPos);
-                btnManageServices.Size = new Size(120, 30);
-                btnManageServices.UseVisualStyleBackColor = true;
-                btnManageServices.Click += BtnManageServices_Click;
-            }
-
-            btnSave = new Button();
-            btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(370, yPos);
-            btnSave.Size = new Size(80, 30);
-            btnSave.UseVisualStyleBackColor = true;
-            btnSave.Click += BtnSave_Click;
-
-            btnCancel = new Button();
-            btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(460, yPos);
-            btnCancel.Size = new Size(80, 30);
-            btnCancel.UseVisualStyleBackColor = true;
-            btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
-
-            this.Controls.AddRange(new Control[] {
-                lblFirstName, txtFirstName, lblLastName, txtLastName,
-                lblBusinessName, txtBusinessName, lblVATNumber, txtVATNumber,
-                lblEmail, txtEmail, lblPhone, txtPhone, lblAddress, txtAddress,
-                lblCategory, cboCategory, lblTags, txtTags,
-                lblCreditLimit, numCreditLimit, lblPaymentTerms, numPaymentTerms,
-                lblNotes, txtNotes
-            });
-
-            if (isEdit)
-            {
-                this.Controls.Add(btnViewHistory);
-                this.Controls.Add(btnManageServices);
-            }
-
-            this.Controls.Add(btnSave);
-            this.Controls.Add(btnCancel);
-        }
-
-        private void LoadClientData()
-        {
-            if (isEdit && client != null)
-            {
-                txtFirstName.Text = client.FirstName;
-                txtLastName.Text = client.LastName;
-                txtBusinessName.Text = client.BusinessName;
-                txtVATNumber.Text = client.VATNumber;
-                txtEmail.Text = client.Email;
-                txtPhone.Text = client.Phone;
-                txtAddress.Text = client.Address;
-                cboCategory.Text = client.Category;
-                txtTags.Text = client.Tags;
-                numCreditLimit.Value = client.CreditLimit;
-                numPaymentTerms.Value = client.PaymentTermsDays;
-                txtNotes.Text = client.Notes;
-            }
-        }
-
-        private void BtnSave_Click(object sender, EventArgs e)
-        {
-            if (ValidateForm())
-            {
-                var clientToSave = new Client
-                {
-                    Id = isEdit ? client.Id : 0,
-                    FirstName = txtFirstName.Text.Trim(),
-                    LastName = txtLastName.Text.Trim(),
-                    BusinessName = txtBusinessName.Text.Trim(),
-                    VATNumber = txtVATNumber.Text.Trim(),
-                    Email = txtEmail.Text.Trim(),
-                    Phone = txtPhone.Text.Trim(),
-                    Address = txtAddress.Text.Trim(),
-                    Category = cboCategory.Text,
-                    Tags = txtTags.Text.Trim(),
-                    CreditLimit = numCreditLimit.Value,
-                    PaymentTermsDays = (int)numPaymentTerms.Value,
-                    Notes = txtNotes.Text.Trim()
-                };
-
-                try
-                {
-                    if (isEdit)
-                    {
-                        clientManager.UpdateClient(clientToSave);
-                        LogManager.LogInfo($"Client updated: {clientToSave.FullName}");
+                        cmd.Parameters.AddWithValue("@search", $"%{searchTerm}%");
                     }
                     else
                     {
-                        clientManager.CreateClient(clientToSave);
-                        LogManager.LogInfo($"Client created: {clientToSave.FullName}");
+                        // If no search term, get all active clients
+                        cmd.CommandText = @"SELECT c.*, 
+                                           COALESCE((SELECT SUM(p.Amount) 
+                                                    FROM Payments p 
+                                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                           FROM Clients c 
+                                           WHERE c.IsActive = 1 
+                                           ORDER BY c.FirstName, c.LastName";
                     }
 
-                    this.DialogResult = DialogResult.OK;
-                }
-                catch (Exception ex)
-                {
-                    LogManager.LogError("Error saving client", ex);
-                    MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-        }
-
-        private bool ValidateForm()
-        {
-            if (string.IsNullOrWhiteSpace(txtFirstName.Text))
-            {
-                MessageBox.Show(LocalizationManager.GetString("first_name") + " " + LocalizationManager.GetString("required_field"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtFirstName.Focus();
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(txtLastName.Text))
-            {
-                MessageBox.Show(LocalizationManager.GetString("last_name") + " " + LocalizationManager.GetString("required_field"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtLastName.Focus();
-                return false;
-            }
-
-            if (!ValidationHelper.IsValidEmail(txtEmail.Text))
-            {
-                MessageBox.Show(LocalizationManager.GetString("invalid_email"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtEmail.Focus();
-                return false;
-            }
-
-            if (!ValidationHelper.IsValidPhone(txtPhone.Text))
-            {
-                MessageBox.Show(LocalizationManager.GetString("invalid_phone"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtPhone.Focus();
-                return false;
-            }
-
-            return true;
-        }
-
-        private void BtnViewHistory_Click(object sender, EventArgs e)
-        {
-            var historyForm = new ContactHistoryForm(dbManager, client.Id);
-            historyForm.ShowDialog();
-        }
-
-        private void BtnManageServices_Click(object sender, EventArgs e)
-        {
-            var servicesForm = new ClientServicesForm(dbManager, client.Id);
-            servicesForm.ShowDialog();
-        }
-    }
-
-    // ===================== SERVICE EDIT FORM =====================
-    public partial class ServiceEditForm : Form
-    {
-        private DatabaseManager dbManager;
-        private ServiceManager serviceManager;
-        private Service service;
-        private bool isEdit;
-
-        private TextBox txtName, txtDescription, txtCategory;
-        private NumericUpDown numBasePrice;
-        private Button btnSave, btnCancel;
-
-        public ServiceEditForm(DatabaseManager dbManager, Service service)
-        {
-            this.dbManager = dbManager;
-            this.serviceManager = new ServiceManager(dbManager);
-            this.service = service;
-            this.isEdit = service != null;
-
-            InitializeComponent();
-            LoadServiceData();
-        }
-
-        private void InitializeComponent()
-        {
-            this.Size = new Size(500, 400);
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.Text = isEdit ? LocalizationManager.GetString("edit_service") : LocalizationManager.GetString("add_service");
-
-            int yPos = 20;
-            int labelWidth = 100;
-            int textBoxWidth = 320;
-
-            // Service Name
-            var lblName = new Label();
-            lblName.Text = LocalizationManager.GetString("service_name") + ":";
-            lblName.Location = new Point(20, yPos);
-            lblName.Size = new Size(labelWidth, 20);
-            txtName = new TextBox();
-            txtName.Location = new Point(130, yPos);
-            txtName.Size = new Size(textBoxWidth, 20);
-            yPos += 35;
-
-            // Category
-            var lblCategory = new Label();
-            lblCategory.Text = LocalizationManager.GetString("category") + ":";
-            lblCategory.Location = new Point(20, yPos);
-            lblCategory.Size = new Size(labelWidth, 20);
-            txtCategory = new TextBox();
-            txtCategory.Location = new Point(130, yPos);
-            txtCategory.Size = new Size(textBoxWidth, 20);
-            yPos += 35;
-
-            // Description
-            var lblDescription = new Label();
-            lblDescription.Text = LocalizationManager.GetString("description") + ":";
-            lblDescription.Location = new Point(20, yPos);
-            lblDescription.Size = new Size(labelWidth, 20);
-            txtDescription = new TextBox();
-            txtDescription.Location = new Point(130, yPos);
-            txtDescription.Size = new Size(textBoxWidth, 80);
-            txtDescription.Multiline = true;
-            txtDescription.ScrollBars = ScrollBars.Vertical;
-            yPos += 95;
-
-            // Base Price
-            var lblBasePrice = new Label();
-            lblBasePrice.Text = LocalizationManager.GetString("base_price") + " (€):";
-            lblBasePrice.Location = new Point(20, yPos);
-            lblBasePrice.Size = new Size(labelWidth, 20);
-            numBasePrice = new NumericUpDown();
-            numBasePrice.Location = new Point(130, yPos);
-            numBasePrice.Size = new Size(120, 20);
-            numBasePrice.Maximum = 999999;
-            numBasePrice.DecimalPlaces = 2;
-            numBasePrice.ThousandsSeparator = true;
-            yPos += 50;
-
-            // Buttons
-            btnSave = new Button();
-            btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(290, yPos);
-            btnSave.Size = new Size(80, 30);
-            btnSave.UseVisualStyleBackColor = true;
-            btnSave.Click += BtnSave_Click;
-
-            btnCancel = new Button();
-            btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(380, yPos);
-            btnCancel.Size = new Size(80, 30);
-            btnCancel.UseVisualStyleBackColor = true;
-            btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
-
-            this.Controls.AddRange(new Control[] {
-                lblName, txtName, lblCategory, txtCategory,
-                lblDescription, txtDescription, lblBasePrice, numBasePrice,
-                btnSave, btnCancel
-            });
-        }
-
-        private void LoadServiceData()
-        {
-            if (isEdit && service != null)
-            {
-                txtName.Text = service.Name;
-                txtCategory.Text = service.Category;
-                txtDescription.Text = service.Description;
-                numBasePrice.Value = service.BasePrice;
-            }
-        }
-
-        private void BtnSave_Click(object sender, EventArgs e)
-        {
-            if (ValidateForm())
-            {
-                var serviceToSave = new Service
-                {
-                    Id = isEdit ? service.Id : 0,
-                    Name = txtName.Text.Trim(),
-                    Category = txtCategory.Text.Trim(),
-                    Description = txtDescription.Text.Trim(),
-                    BasePrice = numBasePrice.Value
-                };
-
-                try
-                {
-                    if (isEdit)
+                    using (var reader = cmd.ExecuteReader())
                     {
-                        serviceManager.UpdateService(serviceToSave);
-                        LogManager.LogInfo($"Service updated: {serviceToSave.Name}");
+                        while (reader.Read())
+                        {
+                            clients.Add(MapClientFromReader(reader));
+                        }
                     }
-                    else
-                    {
-                        serviceManager.CreateService(serviceToSave);
-                        LogManager.LogInfo($"Service created: {serviceToSave.Name}");
-                    }
-
-                    this.DialogResult = DialogResult.OK;
-                }
-                catch (Exception ex)
-                {
-                    LogManager.LogError("Error saving service", ex);
-                    MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                        MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             }
+            return clients;
         }
 
-        private bool ValidateForm()
+        private Client MapClientFromReader(SQLiteDataReader reader)
         {
-            if (string.IsNullOrWhiteSpace(txtName.Text))
+            return new Client
             {
-                MessageBox.Show(LocalizationManager.GetString("service_name") + " " + LocalizationManager.GetString("required_field"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                txtName.Focus();
-                return false;
-            }
-
-            if (numBasePrice.Value <= 0)
-            {
-                MessageBox.Show("Base price must be greater than 0.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                numBasePrice.Focus();
-                return false;
-            }
-
-            return true;
-        }
-    }
-
-    // ===================== CLIENT LIST CONTROL =====================
-    public partial class ClientListControl : UserControl
-    {
-        private DatabaseManager dbManager;
-        private ClientManager clientManager;
-        private DataGridView clientsGrid;
-        private Button addButton, editButton, deleteButton, refreshButton;
-        private TextBox searchBox;
-        private ComboBox searchTypeCombo;
-        private Label searchLabel, searchTypeLabel;
-        private List<Client> allClients;
-
-        public ClientListControl(DatabaseManager dbManager)
-        {
-            this.dbManager = dbManager;
-            this.clientManager = new ClientManager(dbManager);
-            InitializeComponent();
-            LoadClients();
-        }
-
-        private void InitializeComponent()
-        {
-            this.BackColor = Color.FromArgb(248, 249, 250);
-
-            // Search controls
-            searchLabel = new Label();
-            searchLabel.Location = new Point(20, 20);
-            searchLabel.Size = new Size(60, 20);
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-
-            searchBox = new TextBox();
-            searchBox.Location = new Point(90, 18);
-            searchBox.Size = new Size(200, 20);
-            searchBox.TextChanged += (s, e) => PerformSearch();
-
-            searchTypeLabel = new Label();
-            searchTypeLabel.Location = new Point(300, 20);
-            searchTypeLabel.Size = new Size(80, 20);
-            searchTypeLabel.Text = "Search by:";
-
-            searchTypeCombo = new ComboBox();
-            searchTypeCombo.Location = new Point(390, 18);
-            searchTypeCombo.Size = new Size(120, 20);
-            searchTypeCombo.DropDownStyle = ComboBoxStyle.DropDownList;
-            searchTypeCombo.Items.AddRange(new string[] {
-                "All Fields",
-                LocalizationManager.GetString("first_name"),
-                LocalizationManager.GetString("last_name"),
-                LocalizationManager.GetString("business_name"),
-                LocalizationManager.GetString("vat_number")
-            });
-            searchTypeCombo.SelectedIndex = 0;
-            searchTypeCombo.SelectedIndexChanged += (s, e) => PerformSearch();
-
-            // Buttons
-            addButton = new Button();
-            addButton.Location = new Point(530, 15);
-            addButton.Size = new Size(100, 30);
-            addButton.Text = LocalizationManager.GetString("add_client");
-            addButton.UseVisualStyleBackColor = true;
-            addButton.Click += AddButton_Click;
-
-            editButton = new Button();
-            editButton.Location = new Point(640, 15);
-            editButton.Size = new Size(100, 30);
-            editButton.Text = LocalizationManager.GetString("edit_client");
-            editButton.UseVisualStyleBackColor = true;
-            editButton.Click += EditButton_Click;
-
-            deleteButton = new Button();
-            deleteButton.Location = new Point(750, 15);
-            deleteButton.Size = new Size(100, 30);
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            deleteButton.UseVisualStyleBackColor = true;
-            deleteButton.Click += DeleteButton_Click;
-
-            refreshButton = new Button();
-            refreshButton.Location = new Point(860, 15);
-            refreshButton.Size = new Size(100, 30);
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-            refreshButton.UseVisualStyleBackColor = true;
-            refreshButton.Click += (s, e) => LoadClients();
-
-            // DataGridView
-            clientsGrid = new DataGridView();
-            clientsGrid.Location = new Point(20, 60);
-            clientsGrid.Size = new Size(this.Width - 40, this.Height - 80);
-            clientsGrid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            clientsGrid.AutoGenerateColumns = false;
-            clientsGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            clientsGrid.MultiSelect = false;
-            clientsGrid.ReadOnly = true;
-            clientsGrid.AllowUserToAddRows = false;
-            clientsGrid.AllowUserToResizeRows = false;
-            clientsGrid.RowHeadersVisible = false;
-            clientsGrid.BackgroundColor = Color.White;
-            clientsGrid.BorderStyle = BorderStyle.Fixed3D;
-            clientsGrid.CellDoubleClick += (sender, e) => {
-                if (e.RowIndex >= 0) EditButton_Click(sender, e);
+                Id = Convert.ToInt32(reader["Id"]),
+                FirstName = reader["FirstName"].ToString(),
+                LastName = reader["LastName"].ToString(),
+                BusinessName = reader["BusinessName"].ToString(),
+                VATNumber = reader["VATNumber"].ToString(),
+                Email = reader["Email"].ToString(),
+                Phone = reader["Phone"].ToString(),
+                Address = reader["Address"].ToString(),
+                Category = reader["Category"].ToString(),
+                Tags = reader["Tags"].ToString(),
+                CreditLimit = Convert.ToDecimal(reader["CreditLimit"]),
+                PaymentTermsDays = Convert.ToInt32(reader["PaymentTermsDays"]),
+                Notes = reader["Notes"].ToString(),
+                Balance = Convert.ToDecimal(reader["Balance"]),
+                CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
+                IsActive = Convert.ToBoolean(reader["IsActive"])
             };
+        }
+    }
 
-            // Add columns
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "FirstName", HeaderText = LocalizationManager.GetString("first_name"), Width = 120 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "LastName", HeaderText = LocalizationManager.GetString("last_name"), Width = 120 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "BusinessName", HeaderText = LocalizationManager.GetString("business_name"), Width = 150 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "VATNumber", HeaderText = LocalizationManager.GetString("vat_number"), Width = 120 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Email", HeaderText = LocalizationManager.GetString("email"), Width = 150 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Phone", HeaderText = LocalizationManager.GetString("phone"), Width = 120 });
-            clientsGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Balance", HeaderText = LocalizationManager.GetString("balance"), Width = 100, DefaultCellStyle = new DataGridViewCellStyle { Format = "C2" } });
+    // ===================== SERVICE MANAGER =====================
+    public class ServiceManager
+    {
+        private DatabaseManager dbManager;
 
-            // Style the grid
-            clientsGrid.EnableHeadersVisualStyles = false;
-            clientsGrid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(52, 144, 220);
-            clientsGrid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            clientsGrid.ColumnHeadersDefaultCellStyle.Font = new Font("Arial", 10, FontStyle.Bold);
-            clientsGrid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
-
-            this.Controls.AddRange(new Control[] {
-                searchLabel, searchBox, searchTypeLabel, searchTypeCombo,
-                addButton, editButton, deleteButton, refreshButton, clientsGrid
-            });
+        public ServiceManager(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
         }
 
-        public void UpdateUILanguage()
+        public List<Service> GetAllServices()
         {
-            // Update labels
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-            searchTypeLabel.Text = "Search by:";
-
-            // Update search type combo items
-            searchTypeCombo.Items.Clear();
-            searchTypeCombo.Items.AddRange(new string[] {
-                "All Fields",
-                LocalizationManager.GetString("first_name"),
-                LocalizationManager.GetString("last_name"),
-                LocalizationManager.GetString("business_name"),
-                LocalizationManager.GetString("vat_number")
-            });
-            searchTypeCombo.SelectedIndex = 0;
-
-            // Update buttons
-            addButton.Text = LocalizationManager.GetString("add_client");
-            editButton.Text = LocalizationManager.GetString("edit_client");
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-
-            // Update grid column headers
-            clientsGrid.Columns[1].HeaderText = LocalizationManager.GetString("first_name");
-            clientsGrid.Columns[2].HeaderText = LocalizationManager.GetString("last_name");
-            clientsGrid.Columns[3].HeaderText = LocalizationManager.GetString("business_name");
-            clientsGrid.Columns[4].HeaderText = LocalizationManager.GetString("vat_number");
-            clientsGrid.Columns[5].HeaderText = LocalizationManager.GetString("email");
-            clientsGrid.Columns[6].HeaderText = LocalizationManager.GetString("phone");
-            clientsGrid.Columns[7].HeaderText = LocalizationManager.GetString("balance");
+            var services = new List<Service>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand("SELECT * FROM Services WHERE IsActive = 1 ORDER BY Name", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            services.Add(MapServiceFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return services;
         }
 
-        private void LoadClients()
+        public Service GetService(int id)
         {
-            try
+            using (var connection = dbManager.GetConnection())
             {
-                allClients = clientManager.GetAllClients();
-                clientsGrid.DataSource = allClients;
+                connection.Open();
+                using (var cmd = new SQLiteCommand("SELECT * FROM Services WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", id);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            return MapServiceFromReader(reader);
+                        }
+                    }
+                }
             }
-            catch (Exception ex)
+            return null;
+        }
+
+        public int CreateService(Service service)
+        {
+            using (var connection = dbManager.GetConnection())
             {
-                LogManager.LogError("Error loading clients", ex);
-                MessageBox.Show("Error loading clients. Please check the log for details.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    INSERT INTO Services (Name, Description, BasePrice)
+                    VALUES (@name, @description, @basePrice);
+                    SELECT last_insert_rowid();", connection))
+                {
+                    cmd.Parameters.AddWithValue("@name", service.Name);
+                    cmd.Parameters.AddWithValue("@description", service.Description ?? "");
+                    cmd.Parameters.AddWithValue("@basePrice", service.BasePrice);
+
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
             }
         }
 
-        private void PerformSearch()
+        public void UpdateService(Service service)
         {
-            var searchTerm = searchBox.Text.ToLower().Trim();
-            var searchType = searchTypeCombo.SelectedIndex;
-
-            if (string.IsNullOrEmpty(searchTerm))
+            using (var connection = dbManager.GetConnection())
             {
-                clientsGrid.DataSource = allClients;
-                return;
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    UPDATE Services SET 
+                        Name = @name, 
+                        Description = @description, 
+                        BasePrice = @basePrice
+                    WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", service.Id);
+                    cmd.Parameters.AddWithValue("@name", service.Name);
+                    cmd.Parameters.AddWithValue("@description", service.Description ?? "");
+                    cmd.Parameters.AddWithValue("@basePrice", service.BasePrice);
+
+                    cmd.ExecuteNonQuery();
+                }
             }
+        }
 
-            List<Client> filteredClients;
-
-            switch (searchType)
+        public void DeleteService(int serviceId)
+        {
+            using (var connection = dbManager.GetConnection())
             {
-                case 0: // All Fields
-                    filteredClients = allClients.Where(c =>
-                        c.FirstName.ToLower().Contains(searchTerm) ||
-                        c.LastName.ToLower().Contains(searchTerm) ||
-                        (c.BusinessName ?? "").ToLower().Contains(searchTerm) ||
-                        (c.VATNumber ?? "").ToLower().Contains(searchTerm) ||
-                        (c.Email ?? "").ToLower().Contains(searchTerm) ||
-                        (c.Phone ?? "").ToLower().Contains(searchTerm)).ToList();
-                    break;
-                case 1: // First Name
-                    filteredClients = allClients.Where(c =>
-                        c.FirstName.ToLower().Contains(searchTerm)).ToList();
-                    break;
-                case 2: // Last Name
-                    filteredClients = allClients.Where(c =>
-                        c.LastName.ToLower().Contains(searchTerm)).ToList();
-                    break;
-                case 3: // Business Name
-                    filteredClients = allClients.Where(c =>
-                        (c.BusinessName ?? "").ToLower().Contains(searchTerm)).ToList();
-                    break;
-                case 4: // VAT Number
-                    filteredClients = allClients.Where(c =>
-                        (c.VATNumber ?? "").ToLower().Contains(searchTerm)).ToList();
-                    break;
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // Check for active client services
+                        using (var checkCmd = new SQLiteCommand(
+                            "SELECT COUNT(*) FROM ClientServices WHERE ServiceId = @id AND IsActive = 1", connection))
+                        {
+                            checkCmd.Parameters.AddWithValue("@id", serviceId);
+                            var activeServices = Convert.ToInt32(checkCmd.ExecuteScalar());
+                            if (activeServices > 0)
+                            {
+                                throw new InvalidOperationException($"Cannot delete service with {activeServices} active client subscriptions.");
+                            }
+                        }
+
+                        // Soft delete
+                        using (var cmd = new SQLiteCommand("UPDATE Services SET IsActive = 0 WHERE Id = @id", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@id", serviceId);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public List<Service> SearchServices(string searchTerm)
+        {
+            var services = new List<Service>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT * FROM Services 
+                    WHERE IsActive = 1 
+                      AND (Name LIKE @search OR Description LIKE @search)
+                    ORDER BY Name", connection))
+                {
+                    cmd.Parameters.AddWithValue("@search", $"%{searchTerm}%");
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            services.Add(MapServiceFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return services;
+        }
+
+        private Service MapServiceFromReader(SQLiteDataReader reader)
+        {
+            return new Service
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                Name = reader["Name"].ToString(),
+                Description = reader["Description"].ToString(),
+                BasePrice = Convert.ToDecimal(reader["BasePrice"]),
+                CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
+                IsActive = Convert.ToBoolean(reader["IsActive"])
+            };
+        }
+    }
+
+    // ===================== PAYMENT MANAGER =====================
+    public class PaymentManager
+    {
+        private DatabaseManager dbManager;
+
+        public PaymentManager(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
+        }
+
+        public List<Payment> GetUpcomingPayments(DateTime fromDate, DateTime toDate)
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0 
+                      AND p.DueDate BETWEEN @fromDate AND @toDate
+                      AND p.DueDate >= date('now')
+                    ORDER BY p.DueDate", connection))
+                {
+                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            payments.Add(MapPaymentFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public List<Payment> GetOverduePayments()
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // First update overdue status
+                using (var updateCmd = new SQLiteCommand(@"
+                    UPDATE Payments 
+                    SET IsOverdue = 1 
+                    WHERE IsPaid = 0 AND DueDate < date('now')", connection))
+                {
+                    updateCmd.ExecuteNonQuery();
+                }
+
+                // Then get overdue payments
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, 
+                           s.Name as ServiceName,
+                           c.Phone, c.Email,
+                           CAST(julianday('now') - julianday(p.DueDate) as INTEGER) as DaysOverdue
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0 AND p.IsOverdue = 1
+                    ORDER BY p.DueDate", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var payment = MapPaymentFromReader(reader);
+                            // Add extra properties for delayed payments view
+                            payment.Notes = $"Phone: {reader["Phone"]}, Email: {reader["Email"]}";
+                            payments.Add(payment);
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public int GetOverduePaymentCount()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COUNT(*) FROM Payments WHERE IsPaid = 0 AND DueDate < date('now')",
+                    connection))
+                {
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public decimal GetTotalRevenue()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COALESCE(SUM(Amount), 0) FROM Payments WHERE IsPaid = 1",
+                    connection))
+                {
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public decimal GetTotalOutstanding()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COALESCE(SUM(Amount), 0) FROM Payments WHERE IsPaid = 0",
+                    connection))
+                {
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public List<Payment> GetRecentPayments(int count)
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    ORDER BY CASE WHEN p.PaidDate IS NOT NULL THEN p.PaidDate ELSE p.CreatedDate END DESC
+                    LIMIT @count", connection))
+                {
+                    cmd.Parameters.AddWithValue("@count", count);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            payments.Add(MapPaymentFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public void MarkPaymentAsPaid(int paymentId, string paymentMethod, string reference, int monthsPaid = 1)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // Get payment details
+                        Payment payment = null;
+                        using (var getCmd = new SQLiteCommand(
+                            "SELECT * FROM Payments WHERE Id = @id", connection))
+                        {
+                            getCmd.Parameters.AddWithValue("@id", paymentId);
+                            using (var reader = getCmd.ExecuteReader())
+                            {
+                                if (reader.Read())
+                                {
+                                    payment = MapPaymentFromReader(reader);
+                                }
+                            }
+                        }
+
+                        if (payment == null)
+                            throw new Exception("Payment not found");
+
+                        // Update payment as paid
+                        using (var updateCmd = new SQLiteCommand(@"
+                            UPDATE Payments 
+                            SET IsPaid = 1, 
+                                PaidDate = @paidDate, 
+                                PaymentMethod = @method,
+                                Reference = @reference,
+                                IsOverdue = 0
+                            WHERE Id = @id", connection))
+                        {
+                            updateCmd.Parameters.AddWithValue("@id", paymentId);
+                            updateCmd.Parameters.AddWithValue("@paidDate", DateTime.Now.Date);
+                            updateCmd.Parameters.AddWithValue("@method", paymentMethod);
+                            updateCmd.Parameters.AddWithValue("@reference", reference ?? "");
+                            updateCmd.ExecuteNonQuery();
+                        }
+
+                        // If periodic payment and multiple months paid, update ClientService
+                        if (payment.ClientServiceId.HasValue && monthsPaid > 1)
+                        {
+                            using (var csCmd = new SQLiteCommand(
+                                "SELECT * FROM ClientServices WHERE Id = @id", connection))
+                            {
+                                csCmd.Parameters.AddWithValue("@id", payment.ClientServiceId.Value);
+                                using (var reader = csCmd.ExecuteReader())
+                                {
+                                    if (reader.Read())
+                                    {
+                                        var nextPaymentDate = reader["NextPaymentDate"] != DBNull.Value
+                                            ? Convert.ToDateTime(reader["NextPaymentDate"])
+                                            : payment.DueDate;
+                                        var period = reader["Period"].ToString();
+
+                                        // Calculate new next payment date
+                                        DateTime newNextDate = nextPaymentDate;
+                                        for (int i = 0; i < monthsPaid; i++)
+                                        {
+                                            newNextDate = CalculateNextPaymentDate(newNextDate, period,
+                                                reader["ChargeDay"] != DBNull.Value ? Convert.ToInt32(reader["ChargeDay"]) : (int?)null);
+                                        }
+
+                                        // Update ClientService
+                                        using (var updateCsCmd = new SQLiteCommand(@"
+                                            UPDATE ClientServices 
+                                            SET LastPaidDate = @lastPaid,
+                                                NextPaymentDate = @nextDate
+                                            WHERE Id = @id", connection))
+                                        {
+                                            updateCsCmd.Parameters.AddWithValue("@id", payment.ClientServiceId.Value);
+                                            updateCsCmd.Parameters.AddWithValue("@lastPaid", DateTime.Now.Date);
+                                            updateCsCmd.Parameters.AddWithValue("@nextDate", newNextDate);
+                                            updateCsCmd.ExecuteNonQuery();
+                                        }
+
+                                        // Delete any existing future payments for the paid period
+                                        using (var deleteCmd = new SQLiteCommand(@"
+                                            DELETE FROM Payments 
+                                            WHERE ClientServiceId = @csId 
+                                              AND IsPaid = 0 
+                                              AND DueDate > @currentDue
+                                              AND DueDate < @nextDate", connection))
+                                        {
+                                            deleteCmd.Parameters.AddWithValue("@csId", payment.ClientServiceId.Value);
+                                            deleteCmd.Parameters.AddWithValue("@currentDue", payment.DueDate);
+                                            deleteCmd.Parameters.AddWithValue("@nextDate", newNextDate);
+                                            deleteCmd.ExecuteNonQuery();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        transaction.Commit();
+                        LogManager.LogInfo($"Payment marked as paid: ID {paymentId}, Method: {paymentMethod}");
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void CreatePaymentForClientService(int clientServiceId)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // Get client service details
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT cs.*, s.Name as ServiceName, 
+                           COALESCE(cs.CustomPrice, s.BasePrice) as Amount
+                    FROM ClientServices cs
+                    INNER JOIN Services s ON cs.ServiceId = s.Id
+                    WHERE cs.Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", clientServiceId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            var payment = new Payment
+                            {
+                                ClientId = Convert.ToInt32(reader["ClientId"]),
+                                ServiceId = Convert.ToInt32(reader["ServiceId"]),
+                                ClientServiceId = clientServiceId,
+                                PaymentType = reader["ServiceType"].ToString() == "Periodic" ? "Periodic" : "OneOff",
+                                DueDate = reader["NextPaymentDate"] != DBNull.Value
+                                    ? Convert.ToDateTime(reader["NextPaymentDate"])
+                                    : DateTime.Now.Date,
+                                Amount = Convert.ToDecimal(reader["Amount"]),
+                                CreatedBy = SessionManager.CurrentUser
+                            };
+
+                            CreatePayment(payment);
+                        }
+                    }
+                }
+            }
+        }
+
+        public void CreatePayment(Payment payment)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    INSERT INTO Payments (ClientId, ServiceId, ClientServiceId, PaymentType, DueDate, Amount, IsPaid, IsOverdue, CreatedBy)
+                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", connection))
+                {
+                    cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
+                    cmd.Parameters.AddWithValue("@serviceId", (object)payment.ServiceId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@clientServiceId", (object)payment.ClientServiceId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@paymentType", payment.PaymentType);
+                    cmd.Parameters.AddWithValue("@dueDate", payment.DueDate);
+                    cmd.Parameters.AddWithValue("@amount", payment.Amount);
+                    cmd.Parameters.AddWithValue("@createdBy", payment.CreatedBy);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private DateTime CalculateNextPaymentDate(DateTime currentDate, string period, int? chargeDay)
+        {
+            switch (period?.ToLower())
+            {
+                case "weekly":
+                    return currentDate.AddDays(7);
+
+                case "monthly":
+                    var nextMonth = currentDate.AddMonths(1);
+                    if (chargeDay.HasValue)
+                    {
+                        var day = chargeDay.Value;
+                        var daysInMonth = DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextMonth.Year, nextMonth.Month, day);
+                    }
+                    return nextMonth;
+
+                case "quarterly":
+                    var nextQuarter = currentDate.AddMonths(3);
+                    if (chargeDay.HasValue)
+                    {
+                        var day = chargeDay.Value;
+                        var daysInMonth = DateTime.DaysInMonth(nextQuarter.Year, nextQuarter.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextQuarter.Year, nextQuarter.Month, day);
+                    }
+                    return nextQuarter;
+
+                case "yearly":
+                    var nextYear = currentDate.AddYears(1);
+                    if (chargeDay.HasValue && chargeDay.Value <= 365)
+                    {
+                        return new DateTime(nextYear.Year, 1, 1).AddDays(chargeDay.Value - 1);
+                    }
+                    return nextYear;
+
                 default:
-                    filteredClients = allClients;
-                    break;
-            }
-
-            clientsGrid.DataSource = filteredClients;
-        }
-
-        public void ShowAddClientDialog()
-        {
-            AddButton_Click(this, EventArgs.Empty);
-        }
-
-        private void AddButton_Click(object sender, EventArgs e)
-        {
-            var addForm = new ClientEditForm(dbManager, null);
-            if (addForm.ShowDialog() == DialogResult.OK)
-            {
-                LoadClients();
+                    return currentDate.AddMonths(1);
             }
         }
 
-        private void EditButton_Click(object sender, EventArgs e)
+        private Payment MapPaymentFromReader(SQLiteDataReader reader)
         {
-            if (clientsGrid.SelectedRows.Count > 0)
+            return new Payment
             {
-                var selectedClient = (Client)clientsGrid.SelectedRows[0].DataBoundItem;
-                var editForm = new ClientEditForm(dbManager, selectedClient);
-                if (editForm.ShowDialog() == DialogResult.OK)
+                Id = Convert.ToInt32(reader["Id"]),
+                ClientId = Convert.ToInt32(reader["ClientId"]),
+                ServiceId = reader["ServiceId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ServiceId"]),
+                ClientServiceId = reader["ClientServiceId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ClientServiceId"]),
+                PaymentType = reader["PaymentType"].ToString(),
+                DueDate = Convert.ToDateTime(reader["DueDate"]),
+                PaidDate = reader["PaidDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["PaidDate"]),
+                Amount = Convert.ToDecimal(reader["Amount"]),
+                IsPaid = Convert.ToBoolean(reader["IsPaid"]),
+                IsOverdue = Convert.ToBoolean(reader["IsOverdue"]),
+                PaymentMethod = reader["PaymentMethod"]?.ToString(),
+                Reference = reader["Reference"]?.ToString(),
+                Notes = reader["Notes"]?.ToString(),
+                CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
+                CreatedBy = reader["CreatedBy"]?.ToString(),
+                ClientName = reader.GetOrdinal("ClientName") >= 0 ? reader["ClientName"].ToString() : "",
+                ServiceName = reader.GetOrdinal("ServiceName") >= 0 ? reader["ServiceName"]?.ToString() : ""
+            };
+        }
+    }
+
+    // ===================== CLIENT SERVICE MANAGER =====================
+    public class ClientServiceManager
+    {
+        private DatabaseManager dbManager;
+
+        public ClientServiceManager(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
+        }
+
+        public List<ClientService> GetClientServices(int clientId)
+        {
+            var services = new List<ClientService>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT cs.*, s.Name as ServiceName, 
+                           COALESCE(cs.CustomPrice, s.BasePrice) as Price
+                    FROM ClientServices cs
+                    INNER JOIN Services s ON cs.ServiceId = s.Id
+                    WHERE cs.ClientId = @clientId
+                    ORDER BY s.Name", connection))
                 {
-                    LoadClients();
+                    cmd.Parameters.AddWithValue("@clientId", clientId);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            services.Add(MapClientServiceFromReader(reader));
+                        }
+                    }
                 }
             }
-            else
-            {
-                MessageBox.Show(LocalizationManager.GetString("no_selection"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            return services;
         }
 
-        private void DeleteButton_Click(object sender, EventArgs e)
+        public void CreateClientService(ClientService clientService)
         {
-            if (clientsGrid.SelectedRows.Count > 0)
+            using (var connection = dbManager.GetConnection())
             {
-                var result = MessageBox.Show(LocalizationManager.GetString("confirm_delete"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-
-                if (result == DialogResult.Yes)
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
                 {
-                    var selectedClient = (Client)clientsGrid.SelectedRows[0].DataBoundItem;
                     try
                     {
-                        clientManager.DeleteClient(selectedClient.Id);
-                        LoadClients();
+                        // Calculate next payment date
+                        var nextPaymentDate = CalculateInitialPaymentDate(clientService);
+
+                        // Insert client service
+                        using (var cmd = new SQLiteCommand(@"
+                            INSERT INTO ClientServices (ClientId, ServiceId, ServiceType, CustomPrice, Period, ChargeDay, StartDate, NextPaymentDate, IsActive)
+                            VALUES (@clientId, @serviceId, @serviceType, @customPrice, @period, @chargeDay, @startDate, @nextPaymentDate, @isActive);
+                            SELECT last_insert_rowid();", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@clientId", clientService.ClientId);
+                            cmd.Parameters.AddWithValue("@serviceId", clientService.ServiceId);
+                            cmd.Parameters.AddWithValue("@serviceType", clientService.ServiceType);
+                            cmd.Parameters.AddWithValue("@customPrice", (object)clientService.CustomPrice ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
+                            cmd.Parameters.AddWithValue("@nextPaymentDate", nextPaymentDate);
+                            cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
+
+                            var clientServiceId = Convert.ToInt32(cmd.ExecuteScalar());
+
+                            // Create initial payment
+                            if (clientService.IsActive)
+                            {
+                                var paymentManager = new PaymentManager(dbManager);
+                                var payment = new Payment
+                                {
+                                    ClientId = clientService.ClientId,
+                                    ServiceId = clientService.ServiceId,
+                                    ClientServiceId = clientServiceId,
+                                    PaymentType = clientService.ServiceType,
+                                    DueDate = nextPaymentDate,
+                                    Amount = clientService.CustomPrice ?? GetServicePrice(clientService.ServiceId),
+                                    CreatedBy = SessionManager.CurrentUser
+                                };
+                                paymentManager.CreatePayment(payment);
+                            }
+                        }
+
+                        transaction.Commit();
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        LogManager.LogError("Error deleting client", ex);
-                        MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        transaction.Rollback();
+                        throw;
                     }
                 }
             }
-            else
+        }
+
+        public void UpdateClientService(ClientService clientService)
+        {
+            using (var connection = dbManager.GetConnection())
             {
-                MessageBox.Show(LocalizationManager.GetString("no_selection"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                connection.Open();
+
+                DateTime nextPaymentDate;
+                if (clientService.NextPaymentDate == null || clientService.NextPaymentDate.Value.Year == 1)
+                {
+                    nextPaymentDate = CalculateInitialPaymentDate(clientService);
+                }
+                else
+                {
+                    nextPaymentDate = clientService.NextPaymentDate.Value;
+                }
+
+                using (var cmd = new SQLiteCommand(@"
+                    UPDATE ClientServices SET 
+                        ServiceId = @serviceId,
+                        ServiceType = @serviceType,
+                        CustomPrice = @customPrice,
+                        Period = @period,
+                        ChargeDay = @chargeDay,
+                        StartDate = @startDate,
+                        NextPaymentDate = @nextPaymentDate,
+                        IsActive = @isActive
+                    WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", clientService.Id);
+                    cmd.Parameters.AddWithValue("@serviceId", clientService.ServiceId);
+                    cmd.Parameters.AddWithValue("@serviceType", clientService.ServiceType);
+                    cmd.Parameters.AddWithValue("@customPrice", (object)clientService.CustomPrice ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
+                    cmd.Parameters.AddWithValue("@nextPaymentDate", nextPaymentDate);
+                    cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void DeleteClientService(int id)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var transaction = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        // Delete unpaid payments for this service
+                        using (var delPayCmd = new SQLiteCommand(
+                            "DELETE FROM Payments WHERE ClientServiceId = @id AND IsPaid = 0", connection))
+                        {
+                            delPayCmd.Parameters.AddWithValue("@id", id);
+                            delPayCmd.ExecuteNonQuery();
+                        }
+
+                        // Delete client service
+                        using (var cmd = new SQLiteCommand("DELETE FROM ClientServices WHERE Id = @id", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@id", id);
+                            cmd.ExecuteNonQuery();
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
+                }
+            }
+        }
+
+        public void CheckAndCreateUpcomingPayments()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // Get all active periodic services that need payment creation
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT cs.*, s.BasePrice
+                    FROM ClientServices cs
+                    INNER JOIN Services s ON cs.ServiceId = s.Id
+                    WHERE cs.IsActive = 1 
+                      AND cs.ServiceType = 'Periodic'
+                      AND cs.NextPaymentDate <= date('now', '+30 days')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM Payments p 
+                          WHERE p.ClientServiceId = cs.Id 
+                            AND p.DueDate = cs.NextPaymentDate
+                      )", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        var servicesToProcess = new List<(int Id, int ClientId, int ServiceId, DateTime NextDate, decimal Amount, string Period, int? ChargeDay)>();
+
+                        while (reader.Read())
+                        {
+                            servicesToProcess.Add((
+                                Convert.ToInt32(reader["Id"]),
+                                Convert.ToInt32(reader["ClientId"]),
+                                Convert.ToInt32(reader["ServiceId"]),
+                                Convert.ToDateTime(reader["NextPaymentDate"]),
+                                reader["CustomPrice"] != DBNull.Value ? Convert.ToDecimal(reader["CustomPrice"]) : Convert.ToDecimal(reader["BasePrice"]),
+                                reader["Period"].ToString(),
+                                reader["ChargeDay"] != DBNull.Value ? Convert.ToInt32(reader["ChargeDay"]) : (int?)null
+                            ));
+                        }
+
+                        // Process each service
+                        var paymentManager = new PaymentManager(dbManager);
+                        foreach (var service in servicesToProcess)
+                        {
+                            var payment = new Payment
+                            {
+                                ClientId = service.ClientId,
+                                ServiceId = service.ServiceId,
+                                ClientServiceId = service.Id,
+                                PaymentType = "Periodic",
+                                DueDate = service.NextDate,
+                                Amount = service.Amount,
+                                CreatedBy = "System"
+                            };
+                            paymentManager.CreatePayment(payment);
+                        }
+                    }
+                }
+            }
+        }
+
+        private DateTime CalculateInitialPaymentDate(ClientService clientService)
+        {
+            var baseDate = clientService.StartDate;
+
+            if (clientService.ServiceType != "Periodic" || string.IsNullOrEmpty(clientService.Period))
+                return baseDate;
+
+            // For periodic services, calculate the first payment date
+            if (clientService.ChargeDay.HasValue)
+            {
+                switch (clientService.Period.ToLower())
+                {
+                    case "monthly":
+                        var day = clientService.ChargeDay.Value;
+                        if (day > DateTime.DaysInMonth(baseDate.Year, baseDate.Month))
+                            day = DateTime.DaysInMonth(baseDate.Year, baseDate.Month);
+
+                        var firstDate = new DateTime(baseDate.Year, baseDate.Month, day);
+                        if (firstDate < baseDate)
+                            firstDate = firstDate.AddMonths(1);
+                        return firstDate;
+
+                    case "yearly":
+                        var yearDate = new DateTime(baseDate.Year, 1, 1).AddDays(clientService.ChargeDay.Value - 1);
+                        if (yearDate < baseDate)
+                            yearDate = yearDate.AddYears(1);
+                        return yearDate;
+                }
+            }
+
+            return baseDate;
+        }
+
+        private decimal GetServicePrice(int serviceId)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand("SELECT BasePrice FROM Services WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", serviceId);
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        private ClientService MapClientServiceFromReader(SQLiteDataReader reader)
+        {
+            return new ClientService
+            {
+                Id = Convert.ToInt32(reader["Id"]),
+                ClientId = Convert.ToInt32(reader["ClientId"]),
+                ServiceId = Convert.ToInt32(reader["ServiceId"]),
+                ServiceType = reader["ServiceType"].ToString(),
+                CustomPrice = reader["CustomPrice"] == DBNull.Value ? null : (decimal?)Convert.ToDecimal(reader["CustomPrice"]),
+                Period = reader["Period"]?.ToString(),
+                ChargeDay = reader["ChargeDay"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ChargeDay"]),
+                StartDate = Convert.ToDateTime(reader["StartDate"]),
+                EndDate = reader["EndDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["EndDate"]),
+                LastPaidDate = reader["LastPaidDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["LastPaidDate"]),
+                NextPaymentDate = reader["NextPaymentDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["NextPaymentDate"]),
+                IsActive = Convert.ToBoolean(reader["IsActive"]),
+                ServiceName = reader["ServiceName"].ToString(),
+                Price = Convert.ToDecimal(reader["Price"])
+            };
+        }
+    }
+
+    // ===================== CONTACT HISTORY MANAGER =====================
+    public class ContactHistoryManager
+    {
+        private DatabaseManager dbManager;
+
+        public ContactHistoryManager(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
+        }
+
+        public List<ContactHistory> GetClientContacts(int clientId)
+        {
+            var contacts = new List<ContactHistory>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT * FROM ContactHistory WHERE ClientId = @clientId ORDER BY ContactDate DESC",
+                    connection))
+                {
+                    cmd.Parameters.AddWithValue("@clientId", clientId);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            contacts.Add(new ContactHistory
+                            {
+                                Id = Convert.ToInt32(reader["Id"]),
+                                ClientId = Convert.ToInt32(reader["ClientId"]),
+                                ContactDate = Convert.ToDateTime(reader["ContactDate"]),
+                                ContactType = reader["ContactType"].ToString(),
+                                Notes = reader["Notes"].ToString(),
+                                CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
+                                CreatedBy = reader["CreatedBy"].ToString()
+                            });
+                        }
+                    }
+                }
+            }
+            return contacts;
+        }
+
+        public void AddContact(ContactHistory contact)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    INSERT INTO ContactHistory (ClientId, ContactDate, ContactType, Notes, CreatedBy)
+                    VALUES (@clientId, @contactDate, @contactType, @notes, @createdBy)", connection))
+                {
+                    cmd.Parameters.AddWithValue("@clientId", contact.ClientId);
+                    cmd.Parameters.AddWithValue("@contactDate", contact.ContactDate);
+                    cmd.Parameters.AddWithValue("@contactType", contact.ContactType);
+                    cmd.Parameters.AddWithValue("@notes", contact.Notes);
+                    cmd.Parameters.AddWithValue("@createdBy", contact.CreatedBy);
+
+                    cmd.ExecuteNonQuery();
+                }
             }
         }
     }
 
-    // ===================== SERVICE LIST CONTROL =====================
-    public partial class ServiceListControl : UserControl
+    // ===================== USER MANAGER =====================
+    public class UserManager
     {
         private DatabaseManager dbManager;
-        private ServiceManager serviceManager;
-        private DataGridView servicesGrid;
-        private Button addButton, editButton, deleteButton, refreshButton;
-        private TextBox searchBox;
-        private Label searchLabel;
-        private List<Service> allServices;
 
-        public ServiceListControl(DatabaseManager dbManager)
+        public UserManager(DatabaseManager dbManager)
         {
             this.dbManager = dbManager;
-            this.serviceManager = new ServiceManager(dbManager);
-            InitializeComponent();
-            LoadServices();
         }
 
-        private void InitializeComponent()
+        public bool ValidateLogin(string username, string password, out bool isFirstLogin)
         {
-            this.BackColor = Color.FromArgb(248, 249, 250);
+            isFirstLogin = false;
 
-            // Search controls
-            searchLabel = new Label();
-            searchLabel.Location = new Point(20, 20);
-            searchLabel.Size = new Size(60, 20);
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-
-            searchBox = new TextBox();
-            searchBox.Location = new Point(90, 18);
-            searchBox.Size = new Size(300, 20);
-            searchBox.TextChanged += (s, e) => PerformSearch();
-
-            // Buttons
-            addButton = new Button();
-            addButton.Location = new Point(410, 15);
-            addButton.Size = new Size(110, 30);
-            addButton.Text = LocalizationManager.GetString("add_service");
-            addButton.UseVisualStyleBackColor = true;
-            addButton.Click += AddButton_Click;
-
-            editButton = new Button();
-            editButton.Location = new Point(530, 15);
-            editButton.Size = new Size(110, 30);
-            editButton.Text = LocalizationManager.GetString("edit_service");
-            editButton.UseVisualStyleBackColor = true;
-            editButton.Click += EditButton_Click;
-
-            deleteButton = new Button();
-            deleteButton.Location = new Point(650, 15);
-            deleteButton.Size = new Size(100, 30);
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            deleteButton.UseVisualStyleBackColor = true;
-            deleteButton.Click += DeleteButton_Click;
-
-            refreshButton = new Button();
-            refreshButton.Location = new Point(760, 15);
-            refreshButton.Size = new Size(100, 30);
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-            refreshButton.UseVisualStyleBackColor = true;
-            refreshButton.Click += (s, e) => LoadServices();
-
-            // DataGridView
-            servicesGrid = new DataGridView();
-            servicesGrid.Location = new Point(20, 60);
-            servicesGrid.Size = new Size(this.Width - 40, this.Height - 80);
-            servicesGrid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
-            servicesGrid.AutoGenerateColumns = false;
-            servicesGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-            servicesGrid.MultiSelect = false;
-            servicesGrid.ReadOnly = true;
-            servicesGrid.AllowUserToAddRows = false;
-            servicesGrid.AllowUserToResizeRows = false;
-            servicesGrid.RowHeadersVisible = false;
-            servicesGrid.BackgroundColor = Color.White;
-            servicesGrid.BorderStyle = BorderStyle.Fixed3D;
-            servicesGrid.CellDoubleClick += (sender, e) => {
-                if (e.RowIndex >= 0) EditButton_Click(sender, e);
-            };
-
-            // Add columns
-            servicesGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
-            servicesGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Name", HeaderText = LocalizationManager.GetString("service_name"), Width = 200 });
-            servicesGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Description", HeaderText = LocalizationManager.GetString("description"), Width = 300 });
-            servicesGrid.Columns.Add(new DataGridViewTextBoxColumn
+            using (var connection = dbManager.GetConnection())
             {
-                DataPropertyName = "BasePrice",
-                HeaderText = LocalizationManager.GetString("base_price"),
-                Width = 100,
-                DefaultCellStyle = new DataGridViewCellStyle { Format = "C2" }
-            });
-            servicesGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Category", HeaderText = LocalizationManager.GetString("category"), Width = 120 });
-
-            // Style the grid
-            servicesGrid.EnableHeadersVisualStyles = false;
-            servicesGrid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(92, 184, 92);
-            servicesGrid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-            servicesGrid.ColumnHeadersDefaultCellStyle.Font = new Font("Arial", 10, FontStyle.Bold);
-            servicesGrid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
-
-            this.Controls.AddRange(new Control[] {
-                searchLabel, searchBox,
-                addButton, editButton, deleteButton, refreshButton, servicesGrid
-            });
-        }
-
-        public void UpdateUILanguage()
-        {
-            // Update labels
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-
-            // Update buttons
-            addButton.Text = LocalizationManager.GetString("add_service");
-            editButton.Text = LocalizationManager.GetString("edit_service");
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-
-            // Update grid column headers
-            servicesGrid.Columns[1].HeaderText = LocalizationManager.GetString("service_name");
-            servicesGrid.Columns[2].HeaderText = LocalizationManager.GetString("description");
-            servicesGrid.Columns[3].HeaderText = LocalizationManager.GetString("base_price");
-            servicesGrid.Columns[4].HeaderText = LocalizationManager.GetString("category");
-        }
-
-        private void LoadServices()
-        {
-            try
-            {
-                allServices = serviceManager.GetAllServices();
-                servicesGrid.DataSource = allServices;
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error loading services", ex);
-                MessageBox.Show("Error loading services. Please check the log for details.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-
-        private void PerformSearch()
-        {
-            var searchTerm = searchBox.Text.ToLower().Trim();
-
-            if (string.IsNullOrEmpty(searchTerm))
-            {
-                servicesGrid.DataSource = allServices;
-                return;
-            }
-
-            var filteredServices = allServices.Where(s =>
-                s.Name.ToLower().Contains(searchTerm) ||
-                (s.Description ?? "").ToLower().Contains(searchTerm) ||
-                (s.Category ?? "").ToLower().Contains(searchTerm)).ToList();
-
-            servicesGrid.DataSource = filteredServices;
-        }
-
-        public void ShowAddServiceDialog()
-        {
-            AddButton_Click(this, EventArgs.Empty);
-        }
-
-        private void AddButton_Click(object sender, EventArgs e)
-        {
-            var addForm = new ServiceEditForm(dbManager, null);
-            if (addForm.ShowDialog() == DialogResult.OK)
-            {
-                LoadServices();
-            }
-        }
-
-        private void EditButton_Click(object sender, EventArgs e)
-        {
-            if (servicesGrid.SelectedRows.Count > 0)
-            {
-                var selectedService = (Service)servicesGrid.SelectedRows[0].DataBoundItem;
-                var editForm = new ServiceEditForm(dbManager, selectedService);
-                if (editForm.ShowDialog() == DialogResult.OK)
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT PasswordHash, Salt, IsFirstLogin FROM Users WHERE Username = @username AND IsActive = 1",
+                    connection))
                 {
-                    LoadServices();
-                }
-            }
-            else
-            {
-                MessageBox.Show(LocalizationManager.GetString("no_selection"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
+                    cmd.Parameters.AddWithValue("@username", username);
 
-        private void DeleteButton_Click(object sender, EventArgs e)
-        {
-            if (servicesGrid.SelectedRows.Count > 0)
-            {
-                var result = MessageBox.Show(LocalizationManager.GetString("confirm_delete"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            string storedHash = reader["PasswordHash"].ToString();
+                            string salt = reader["Salt"].ToString();
+                            isFirstLogin = Convert.ToBoolean(reader["IsFirstLogin"]);
 
-                if (result == DialogResult.Yes)
-                {
-                    var selectedService = (Service)servicesGrid.SelectedRows[0].DataBoundItem;
-                    try
-                    {
-                        serviceManager.DeleteService(selectedService.Id);
-                        LoadServices();
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogError("Error deleting service", ex);
-                        MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            return CryptoHelper.VerifyPassword(password, salt, storedHash);
+                        }
                     }
                 }
             }
-            else
-            {
-                MessageBox.Show(LocalizationManager.GetString("no_selection"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
+            return false;
         }
+
+        public bool ChangePassword(string username, string oldPassword, string newPassword)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // Verify old password
+                using (var cmd = new SQLiteCommand(
+                    "SELECT PasswordHash, Salt FROM Users WHERE Username = @username",
+                    connection))
+                {
+                    cmd.Parameters.AddWithValue("@username", username);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            string storedHash = reader["PasswordHash"].ToString();
+                            string salt = reader["Salt"].ToString();
+
+                            if (CryptoHelper.VerifyPassword(oldPassword, salt, storedHash))
+                            {
+                                // Update with new password
+                                var newSalt = CryptoHelper.GenerateSalt();
+                                var newHash = CryptoHelper.HashPassword(newPassword, newSalt);
+
+                                using (var updateCmd = new SQLiteCommand(
+                                    "UPDATE Users SET PasswordHash = @hash, Salt = @salt, IsFirstLogin = 0 WHERE Username = @username",
+                                    connection))
+                                {
+                                    updateCmd.Parameters.AddWithValue("@hash", newHash);
+                                    updateCmd.Parameters.AddWithValue("@salt", newSalt);
+                                    updateCmd.Parameters.AddWithValue("@username", username);
+
+                                    updateCmd.ExecuteNonQuery();
+                                }
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+    }
+
+    // ===================== REPORT MANAGER =====================
+    public class ReportManager
+    {
+        private DatabaseManager dbManager;
+
+        public ReportManager(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
+        }
+
+        public List<RevenueReportItem> GetRevenueReport(DateTime fromDate, DateTime toDate)
+        {
+            var items = new List<RevenueReportItem>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 1 AND p.PaidDate BETWEEN @fromDate AND @toDate
+                    ORDER BY p.PaidDate DESC", connection))
+                {
+                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            items.Add(new RevenueReportItem
+                            {
+                                ClientName = reader["ClientName"].ToString(),
+                                ServiceName = reader["ServiceName"]?.ToString() ?? "General Payment",
+                                PaymentDate = Convert.ToDateTime(reader["PaidDate"]),
+                                Amount = Convert.ToDecimal(reader["Amount"]),
+                                PaymentMethod = reader["PaymentMethod"]?.ToString() ?? "",
+                                Reference = reader["Reference"]?.ToString() ?? ""
+                            });
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+
+        public List<OutstandingReportItem> GetOutstandingReport()
+        {
+            var items = new List<OutstandingReportItem>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName,
+                           CAST(julianday('now') - julianday(p.DueDate) as INTEGER) as DaysOverdue
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0
+                    ORDER BY p.DueDate", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            items.Add(new OutstandingReportItem
+                            {
+                                ClientName = reader["ClientName"].ToString(),
+                                ServiceName = reader["ServiceName"]?.ToString() ?? "Payment",
+                                DueDate = Convert.ToDateTime(reader["DueDate"]),
+                                Amount = Convert.ToDecimal(reader["Amount"]),
+                                DaysOverdue = Convert.ToInt32(reader["DaysOverdue"])
+                            });
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+
+        public List<ServicePerformanceItem> GetServicePerformanceReport()
+        {
+            var items = new List<ServicePerformanceItem>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT s.Name as ServiceName,
+                           COUNT(DISTINCT cs.ClientId) as ClientCount,
+                           COUNT(p.Id) as TotalPayments,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 1 THEN p.Amount ELSE 0 END), 0) as TotalRevenue,
+                           COALESCE(AVG(cs.CustomPrice), s.BasePrice) as AveragePrice,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 0 THEN p.Amount ELSE 0 END), 0) as OutstandingAmount
+                    FROM Services s
+                    LEFT JOIN ClientServices cs ON s.Id = cs.ServiceId
+                    LEFT JOIN Payments p ON s.Id = p.ServiceId
+                    WHERE s.IsActive = 1
+                    GROUP BY s.Id, s.Name, s.BasePrice
+                    ORDER BY TotalRevenue DESC", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            items.Add(new ServicePerformanceItem
+                            {
+                                ServiceName = reader["ServiceName"].ToString(),
+                                ClientCount = Convert.ToInt32(reader["ClientCount"]),
+                                TotalPayments = Convert.ToInt32(reader["TotalPayments"]),
+                                TotalRevenue = Convert.ToDecimal(reader["TotalRevenue"]),
+                                AveragePrice = Convert.ToDecimal(reader["AveragePrice"]),
+                                OutstandingAmount = Convert.ToDecimal(reader["OutstandingAmount"])
+                            });
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+
+        public List<ClientProfitabilityItem> GetClientProfitabilityReport()
+        {
+            var items = new List<ClientProfitabilityItem>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT c.Id, c.FirstName || ' ' || c.LastName as ClientName,
+                           COUNT(DISTINCT cs.ServiceId) as ServiceCount,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 1 THEN p.Amount ELSE 0 END), 0) as TotalPaid,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 0 THEN p.Amount ELSE 0 END), 0) as TotalOutstanding
+                    FROM Clients c
+                    LEFT JOIN ClientServices cs ON c.Id = cs.ClientId
+                    LEFT JOIN Payments p ON c.Id = p.ClientId
+                    WHERE c.IsActive = 1
+                    GROUP BY c.Id, ClientName
+                    ORDER BY TotalPaid DESC", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            items.Add(new ClientProfitabilityItem
+                            {
+                                ClientName = reader["ClientName"].ToString(),
+                                ServiceCount = Convert.ToInt32(reader["ServiceCount"]),
+                                TotalPaid = Convert.ToDecimal(reader["TotalPaid"]),
+                                TotalOutstanding = Convert.ToDecimal(reader["TotalOutstanding"])
+                            });
+                        }
+                    }
+                }
+            }
+            return items;
+        }
+    }
+
+    // Report Models
+    public class RevenueReportItem
+    {
+        public string ClientName { get; set; }
+        public string ServiceName { get; set; }
+        public DateTime PaymentDate { get; set; }
+        public decimal Amount { get; set; }
+        public string PaymentMethod { get; set; }
+        public string Reference { get; set; }
+    }
+
+    public class OutstandingReportItem
+    {
+        public string ClientName { get; set; }
+        public string ServiceName { get; set; }
+        public DateTime DueDate { get; set; }
+        public decimal Amount { get; set; }
+        public int DaysOverdue { get; set; }
+    }
+
+    public class ServicePerformanceItem
+    {
+        public string ServiceName { get; set; }
+        public int ClientCount { get; set; }
+        public int TotalPayments { get; set; }
+        public decimal TotalRevenue { get; set; }
+        public decimal AveragePrice { get; set; }
+        public decimal OutstandingAmount { get; set; }
+    }
+
+    public class ClientProfitabilityItem
+    {
+        public string ClientName { get; set; }
+        public int ServiceCount { get; set; }
+        public decimal TotalPaid { get; set; }
+        public decimal TotalOutstanding { get; set; }
     }
 }

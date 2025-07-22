@@ -23,9 +23,9 @@ namespace BillPilot
                 connection.Open();
                 using (var cmd = new SQLiteCommand(@"
                     SELECT c.*, 
-                           COALESCE((SELECT SUM(ch.Amount - ch.PaidAmount) 
-                                    FROM Charges ch 
-                                    WHERE ch.ClientId = c.Id AND ch.IsPaid = 0), 0) as Balance
+                           COALESCE((SELECT SUM(p.Amount) 
+                                    FROM Payments p 
+                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
                     FROM Clients c 
                     WHERE c.IsActive = 1 
                     ORDER BY c.FirstName, c.LastName", connection))
@@ -49,9 +49,9 @@ namespace BillPilot
                 connection.Open();
                 using (var cmd = new SQLiteCommand(@"
                     SELECT c.*, 
-                           COALESCE((SELECT SUM(ch.Amount - ch.PaidAmount) 
-                                    FROM Charges ch 
-                                    WHERE ch.ClientId = c.Id AND ch.IsPaid = 0), 0) as Balance
+                           COALESCE((SELECT SUM(p.Amount) 
+                                    FROM Payments p 
+                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
                     FROM Clients c 
                     WHERE c.Id = @id", connection))
                 {
@@ -145,15 +145,15 @@ namespace BillPilot
                 {
                     try
                     {
-                        // Check for active charges
+                        // Check for unpaid payments
                         using (var checkCmd = new SQLiteCommand(
-                            "SELECT COUNT(*) FROM Charges WHERE ClientId = @id AND IsPaid = 0", connection))
+                            "SELECT COUNT(*) FROM Payments WHERE ClientId = @id AND IsPaid = 0", connection))
                         {
                             checkCmd.Parameters.AddWithValue("@id", clientId);
-                            var unpaidCharges = Convert.ToInt32(checkCmd.ExecuteScalar());
-                            if (unpaidCharges > 0)
+                            var unpaidPayments = Convert.ToInt32(checkCmd.ExecuteScalar());
+                            if (unpaidPayments > 0)
                             {
-                                throw new InvalidOperationException($"Cannot delete client with {unpaidCharges} unpaid charges.");
+                                throw new InvalidOperationException($"Cannot delete client with {unpaidPayments} unpaid payments.");
                             }
                         }
 
@@ -181,44 +181,76 @@ namespace BillPilot
             using (var connection = dbManager.GetConnection())
             {
                 connection.Open();
-                string whereClause = "c.IsActive = 1";
+                string query;
 
-                if (!string.IsNullOrEmpty(searchTerm))
+                // Build parameterized query based on search field
+                switch (searchField.ToLower())
                 {
-                    switch (searchField.ToLower())
-                    {
-                        case "firstname":
-                            whereClause += " AND c.FirstName LIKE @search";
-                            break;
-                        case "lastname":
-                            whereClause += " AND c.LastName LIKE @search";
-                            break;
-                        case "businessname":
-                            whereClause += " AND c.BusinessName LIKE @search";
-                            break;
-                        case "vatnumber":
-                            whereClause += " AND c.VATNumber LIKE @search";
-                            break;
-                        default:
-                            whereClause += @" AND (c.FirstName LIKE @search OR c.LastName LIKE @search 
-                                            OR c.BusinessName LIKE @search OR c.VATNumber LIKE @search 
-                                            OR c.Email LIKE @search OR c.Phone LIKE @search)";
-                            break;
-                    }
+                    case "firstname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.FirstName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    case "lastname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.LastName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    case "businessname":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.BusinessName LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    case "vatnumber":
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND c.VATNumber LIKE @search
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
+                    default:
+                        query = @"SELECT c.*, 
+                                 COALESCE((SELECT SUM(p.Amount) 
+                                          FROM Payments p 
+                                          WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                 FROM Clients c 
+                                 WHERE c.IsActive = 1 AND (c.FirstName LIKE @search OR c.LastName LIKE @search 
+                                                  OR c.BusinessName LIKE @search OR c.VATNumber LIKE @search 
+                                                  OR c.Email LIKE @search OR c.Phone LIKE @search)
+                                 ORDER BY c.FirstName, c.LastName";
+                        break;
                 }
 
-                using (var cmd = new SQLiteCommand($@"
-                    SELECT c.*, 
-                           COALESCE((SELECT SUM(ch.Amount - ch.PaidAmount) 
-                                    FROM Charges ch 
-                                    WHERE ch.ClientId = c.Id AND ch.IsPaid = 0), 0) as Balance
-                    FROM Clients c 
-                    WHERE {whereClause}
-                    ORDER BY c.FirstName, c.LastName", connection))
+                using (var cmd = new SQLiteCommand(query, connection))
                 {
                     if (!string.IsNullOrEmpty(searchTerm))
                     {
                         cmd.Parameters.AddWithValue("@search", $"%{searchTerm}%");
+                    }
+                    else
+                    {
+                        // If no search term, get all active clients
+                        cmd.CommandText = @"SELECT c.*, 
+                                           COALESCE((SELECT SUM(p.Amount) 
+                                                    FROM Payments p 
+                                                    WHERE p.ClientId = c.Id AND p.IsPaid = 0), 0) as Balance
+                                           FROM Clients c 
+                                           WHERE c.IsActive = 1 
+                                           ORDER BY c.FirstName, c.LastName";
                     }
 
                     using (var reader = cmd.ExecuteReader())
@@ -313,14 +345,13 @@ namespace BillPilot
             {
                 connection.Open();
                 using (var cmd = new SQLiteCommand(@"
-                    INSERT INTO Services (Name, Description, BasePrice, Category)
-                    VALUES (@name, @description, @basePrice, @category);
+                    INSERT INTO Services (Name, Description, BasePrice)
+                    VALUES (@name, @description, @basePrice);
                     SELECT last_insert_rowid();", connection))
                 {
                     cmd.Parameters.AddWithValue("@name", service.Name);
                     cmd.Parameters.AddWithValue("@description", service.Description ?? "");
                     cmd.Parameters.AddWithValue("@basePrice", service.BasePrice);
-                    cmd.Parameters.AddWithValue("@category", service.Category ?? "");
 
                     return Convert.ToInt32(cmd.ExecuteScalar());
                 }
@@ -336,15 +367,13 @@ namespace BillPilot
                     UPDATE Services SET 
                         Name = @name, 
                         Description = @description, 
-                        BasePrice = @basePrice, 
-                        Category = @category
+                        BasePrice = @basePrice
                     WHERE Id = @id", connection))
                 {
                     cmd.Parameters.AddWithValue("@id", service.Id);
                     cmd.Parameters.AddWithValue("@name", service.Name);
                     cmd.Parameters.AddWithValue("@description", service.Description ?? "");
                     cmd.Parameters.AddWithValue("@basePrice", service.BasePrice);
-                    cmd.Parameters.AddWithValue("@category", service.Category ?? "");
 
                     cmd.ExecuteNonQuery();
                 }
@@ -399,7 +428,7 @@ namespace BillPilot
                 using (var cmd = new SQLiteCommand(@"
                     SELECT * FROM Services 
                     WHERE IsActive = 1 
-                      AND (Name LIKE @search OR Description LIKE @search OR Category LIKE @search)
+                      AND (Name LIKE @search OR Description LIKE @search)
                     ORDER BY Name", connection))
                 {
                     cmd.Parameters.AddWithValue("@search", $"%{searchTerm}%");
@@ -424,257 +453,8 @@ namespace BillPilot
                 Name = reader["Name"].ToString(),
                 Description = reader["Description"].ToString(),
                 BasePrice = Convert.ToDecimal(reader["BasePrice"]),
-                Category = reader["Category"].ToString(),
                 CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
                 IsActive = Convert.ToBoolean(reader["IsActive"])
-            };
-        }
-    }
-
-    // ===================== CHARGE MANAGER =====================
-    public class ChargeManager
-    {
-        private DatabaseManager dbManager;
-
-        public ChargeManager(DatabaseManager dbManager)
-        {
-            this.dbManager = dbManager;
-        }
-
-        public List<Charge> GetRecentCharges(int count)
-        {
-            var charges = new List<Charge>();
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(@"
-                    SELECT ch.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
-                    FROM Charges ch
-                    INNER JOIN Clients c ON ch.ClientId = c.Id
-                    LEFT JOIN Services s ON ch.ServiceId = s.Id
-                    ORDER BY ch.CreatedDate DESC
-                    LIMIT @count", connection))
-                {
-                    cmd.Parameters.AddWithValue("@count", count);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            charges.Add(MapChargeFromReader(reader));
-                        }
-                    }
-                }
-            }
-            return charges;
-        }
-
-        public decimal GetTotalOutstanding()
-        {
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(
-                    "SELECT COALESCE(SUM(Amount - PaidAmount), 0) FROM Charges WHERE IsPaid = 0",
-                    connection))
-                {
-                    return Convert.ToDecimal(cmd.ExecuteScalar());
-                }
-            }
-        }
-
-        public List<UpcomingCharge> GetUpcomingAutoCharges(DateTime fromDate, DateTime toDate)
-        {
-            var charges = new List<UpcomingCharge>();
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(@"
-                    SELECT cs.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName,
-                           COALESCE(cs.CustomPrice, s.BasePrice) as Amount
-                    FROM ClientServices cs
-                    INNER JOIN Clients c ON cs.ClientId = c.Id
-                    INNER JOIN Services s ON cs.ServiceId = s.Id
-                    WHERE cs.IsActive = 1 
-                      AND cs.ServiceType = 'Periodic'
-                      AND cs.NextChargeDate BETWEEN @fromDate AND @toDate
-                    ORDER BY cs.NextChargeDate", connection))
-                {
-                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
-                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            charges.Add(new UpcomingCharge
-                            {
-                                Id = Convert.ToInt32(reader["Id"]),
-                                ClientName = reader["ClientName"].ToString(),
-                                ServiceName = reader["ServiceName"].ToString(),
-                                Amount = Convert.ToDecimal(reader["Amount"]),
-                                NextChargeDate = reader["NextChargeDate"] != DBNull.Value ?
-                                    Convert.ToDateTime(reader["NextChargeDate"]) : DateTime.Now.AddDays(30),
-                                Period = reader["Period"].ToString()
-                            });
-                        }
-                    }
-                }
-            }
-            return charges;
-        }
-
-        public List<Charge> GetAllOutstandingCharges(DateTime fromDate, DateTime toDate)
-        {
-            var charges = new List<Charge>();
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(@"
-                    SELECT ch.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
-                    FROM Charges ch
-                    INNER JOIN Clients c ON ch.ClientId = c.Id
-                    LEFT JOIN Services s ON ch.ServiceId = s.Id
-                    WHERE ch.IsPaid = 0 
-                      AND ch.ChargeDate BETWEEN @fromDate AND @toDate
-                    ORDER BY ch.DueDate", connection))
-                {
-                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
-                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            charges.Add(MapChargeFromReader(reader));
-                        }
-                    }
-                }
-            }
-            return charges;
-        }
-
-        public List<DelayedPayment> GetOverdueCharges()
-        {
-            var delayed = new List<DelayedPayment>();
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(@"
-                    SELECT c.Id as ClientId, c.FirstName || ' ' || c.LastName as ClientName,
-                           c.Phone, c.Email,
-                           SUM(ch.Amount - ch.PaidAmount) as TotalDue,
-                           MIN(ch.DueDate) as OldestDueDate,
-                           CAST(julianday('now') - julianday(MIN(ch.DueDate)) as INTEGER) as DaysOverdue
-                    FROM Charges ch
-                    INNER JOIN Clients c ON ch.ClientId = c.Id
-                    WHERE ch.IsPaid = 0 AND ch.DueDate < date('now')
-                    GROUP BY c.Id, ClientName, c.Phone, c.Email
-                    ORDER BY DaysOverdue DESC", connection))
-                {
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            delayed.Add(new DelayedPayment
-                            {
-                                ClientId = Convert.ToInt32(reader["ClientId"]),
-                                ClientName = reader["ClientName"].ToString(),
-                                TotalDue = Convert.ToDecimal(reader["TotalDue"]),
-                                OldestDueDate = Convert.ToDateTime(reader["OldestDueDate"]),
-                                DaysOverdue = Convert.ToInt32(reader["DaysOverdue"]),
-                                Phone = reader["Phone"].ToString(),
-                                Email = reader["Email"].ToString()
-                            });
-                        }
-                    }
-                }
-            }
-            return delayed;
-        }
-
-        public List<Charge> GetClientOutstandingCharges(int clientId)
-        {
-            var charges = new List<Charge>();
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(@"
-                    SELECT ch.*, s.Name as ServiceName
-                    FROM Charges ch
-                    LEFT JOIN Services s ON ch.ServiceId = s.Id
-                    WHERE ch.ClientId = @clientId AND ch.IsPaid = 0
-                    ORDER BY ch.DueDate", connection))
-                {
-                    cmd.Parameters.AddWithValue("@clientId", clientId);
-
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            charges.Add(MapChargeFromReader(reader));
-                        }
-                    }
-                }
-            }
-            return charges;
-        }
-
-        public void CreateCharge(Charge charge)
-        {
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var transaction = connection.BeginTransaction())
-                {
-                    try
-                    {
-                        using (var cmd = new SQLiteCommand(@"
-                            INSERT INTO Charges (ClientId, ServiceId, ChargeType, Description, Amount, ChargeDate, DueDate, CreatedBy)
-                            VALUES (@clientId, @serviceId, @chargeType, @description, @amount, @chargeDate, @dueDate, @createdBy)", connection))
-                        {
-                            cmd.Parameters.AddWithValue("@clientId", charge.ClientId);
-                            cmd.Parameters.AddWithValue("@serviceId", (object)charge.ServiceId ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@chargeType", charge.ChargeType);
-                            cmd.Parameters.AddWithValue("@description", charge.Description ?? "");
-                            cmd.Parameters.AddWithValue("@amount", charge.Amount);
-                            cmd.Parameters.AddWithValue("@chargeDate", charge.ChargeDate);
-                            cmd.Parameters.AddWithValue("@dueDate", charge.DueDate);
-                            cmd.Parameters.AddWithValue("@createdBy", charge.CreatedBy);
-
-                            cmd.ExecuteNonQuery();
-                        }
-
-                        transaction.Commit();
-                        LogManager.LogInfo($"Charge created for client {charge.ClientId}, amount: {charge.Amount}");
-                    }
-                    catch
-                    {
-                        transaction.Rollback();
-                        throw;
-                    }
-                }
-            }
-        }
-
-        private Charge MapChargeFromReader(SQLiteDataReader reader)
-        {
-            return new Charge
-            {
-                Id = Convert.ToInt32(reader["Id"]),
-                ClientId = Convert.ToInt32(reader["ClientId"]),
-                ServiceId = reader["ServiceId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ServiceId"]),
-                ChargeType = reader["ChargeType"].ToString(),
-                Description = reader["Description"].ToString(),
-                Amount = Convert.ToDecimal(reader["Amount"]),
-                ChargeDate = Convert.ToDateTime(reader["ChargeDate"]),
-                DueDate = Convert.ToDateTime(reader["DueDate"]),
-                IsPaid = Convert.ToBoolean(reader["IsPaid"]),
-                PaidAmount = Convert.ToDecimal(reader["PaidAmount"]),
-                CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
-                CreatedBy = reader["CreatedBy"].ToString(),
-                ClientName = reader.GetOrdinal("ClientName") >= 0 ? reader["ClientName"].ToString() : "",
-                ServiceName = reader.GetOrdinal("ServiceName") >= 0 ? reader["ServiceName"]?.ToString() : ""
             };
         }
     }
@@ -689,6 +469,122 @@ namespace BillPilot
             this.dbManager = dbManager;
         }
 
+        public List<Payment> GetUpcomingPayments(DateTime fromDate, DateTime toDate)
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0 
+                      AND p.DueDate BETWEEN @fromDate AND @toDate
+                      AND p.DueDate >= date('now')
+                    ORDER BY p.DueDate", connection))
+                {
+                    cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
+                    cmd.Parameters.AddWithValue("@toDate", toDate.Date);
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            payments.Add(MapPaymentFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public List<Payment> GetOverduePayments()
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // First update overdue status
+                using (var updateCmd = new SQLiteCommand(@"
+                    UPDATE Payments 
+                    SET IsOverdue = 1 
+                    WHERE IsPaid = 0 AND DueDate < date('now')", connection))
+                {
+                    updateCmd.ExecuteNonQuery();
+                }
+
+                // Then get overdue payments
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, 
+                           s.Name as ServiceName,
+                           c.Phone, c.Email,
+                           CAST(julianday('now') - julianday(p.DueDate) as INTEGER) as DaysOverdue
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0 AND p.IsOverdue = 1
+                    ORDER BY p.DueDate", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            var payment = MapPaymentFromReader(reader);
+                            // Add extra properties for delayed payments view
+                            payment.Notes = $"Phone: {reader["Phone"]}, Email: {reader["Email"]}";
+                            payments.Add(payment);
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public int GetOverduePaymentCount()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COUNT(*) FROM Payments WHERE IsPaid = 0 AND DueDate < date('now')",
+                    connection))
+                {
+                    return Convert.ToInt32(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public decimal GetTotalRevenue()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COALESCE(SUM(Amount), 0) FROM Payments WHERE IsPaid = 1",
+                    connection))
+                {
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+        }
+
+        public decimal GetTotalOutstanding()
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(
+                    "SELECT COALESCE(SUM(Amount), 0) FROM Payments WHERE IsPaid = 0",
+                    connection))
+                {
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
+            }
+        }
+
         public List<Payment> GetRecentPayments(int count)
         {
             var payments = new List<Payment>();
@@ -696,10 +592,11 @@ namespace BillPilot
             {
                 connection.Open();
                 using (var cmd = new SQLiteCommand(@"
-                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
                     FROM Payments p
                     INNER JOIN Clients c ON p.ClientId = c.Id
-                    ORDER BY p.CreatedDate DESC
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    ORDER BY CASE WHEN p.PaidDate IS NOT NULL THEN p.PaidDate ELSE p.CreatedDate END DESC
                     LIMIT @count", connection))
                 {
                     cmd.Parameters.AddWithValue("@count", count);
@@ -716,21 +613,7 @@ namespace BillPilot
             return payments;
         }
 
-        public decimal GetTotalRevenue()
-        {
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
-                using (var cmd = new SQLiteCommand(
-                    "SELECT COALESCE(SUM(Amount), 0) FROM Payments",
-                    connection))
-                {
-                    return Convert.ToDecimal(cmd.ExecuteScalar());
-                }
-            }
-        }
-
-        public void CreatePayment(Payment payment)
+        public void MarkPaymentAsPaid(int paymentId, string paymentMethod, string reference, int monthsPaid = 1)
         {
             using (var connection = dbManager.GetConnection())
             {
@@ -739,40 +622,98 @@ namespace BillPilot
                 {
                     try
                     {
-                        // Insert payment
-                        using (var cmd = new SQLiteCommand(@"
-                            INSERT INTO Payments (ClientId, ChargeId, Amount, PaymentDate, PaymentMethod, Reference, Notes, CreatedBy)
-                            VALUES (@clientId, @chargeId, @amount, @paymentDate, @paymentMethod, @reference, @notes, @createdBy)", connection))
+                        // Get payment details
+                        Payment payment = null;
+                        using (var getCmd = new SQLiteCommand(
+                            "SELECT * FROM Payments WHERE Id = @id", connection))
                         {
-                            cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
-                            cmd.Parameters.AddWithValue("@chargeId", (object)payment.ChargeId ?? DBNull.Value);
-                            cmd.Parameters.AddWithValue("@amount", payment.Amount);
-                            cmd.Parameters.AddWithValue("@paymentDate", payment.PaymentDate);
-                            cmd.Parameters.AddWithValue("@paymentMethod", payment.PaymentMethod ?? "");
-                            cmd.Parameters.AddWithValue("@reference", payment.Reference ?? "");
-                            cmd.Parameters.AddWithValue("@notes", payment.Notes ?? "");
-                            cmd.Parameters.AddWithValue("@createdBy", payment.CreatedBy);
-
-                            cmd.ExecuteNonQuery();
+                            getCmd.Parameters.AddWithValue("@id", paymentId);
+                            using (var reader = getCmd.ExecuteReader())
+                            {
+                                if (reader.Read())
+                                {
+                                    payment = MapPaymentFromReader(reader);
+                                }
+                            }
                         }
 
-                        // Update charge if linked
-                        if (payment.ChargeId.HasValue)
+                        if (payment == null)
+                            throw new Exception("Payment not found");
+
+                        // Update payment as paid
+                        using (var updateCmd = new SQLiteCommand(@"
+                            UPDATE Payments 
+                            SET IsPaid = 1, 
+                                PaidDate = @paidDate, 
+                                PaymentMethod = @method,
+                                Reference = @reference,
+                                IsOverdue = 0
+                            WHERE Id = @id", connection))
                         {
-                            using (var updateCmd = new SQLiteCommand(@"
-                                UPDATE Charges 
-                                SET PaidAmount = PaidAmount + @amount,
-                                    IsPaid = CASE WHEN PaidAmount + @amount >= Amount THEN 1 ELSE 0 END
-                                WHERE Id = @chargeId", connection))
+                            updateCmd.Parameters.AddWithValue("@id", paymentId);
+                            updateCmd.Parameters.AddWithValue("@paidDate", DateTime.Now.Date);
+                            updateCmd.Parameters.AddWithValue("@method", paymentMethod);
+                            updateCmd.Parameters.AddWithValue("@reference", reference ?? "");
+                            updateCmd.ExecuteNonQuery();
+                        }
+
+                        // If periodic payment and multiple months paid, update ClientService
+                        if (payment.ClientServiceId.HasValue && monthsPaid > 1)
+                        {
+                            using (var csCmd = new SQLiteCommand(
+                                "SELECT * FROM ClientServices WHERE Id = @id", connection))
                             {
-                                updateCmd.Parameters.AddWithValue("@amount", payment.Amount);
-                                updateCmd.Parameters.AddWithValue("@chargeId", payment.ChargeId.Value);
-                                updateCmd.ExecuteNonQuery();
+                                csCmd.Parameters.AddWithValue("@id", payment.ClientServiceId.Value);
+                                using (var reader = csCmd.ExecuteReader())
+                                {
+                                    if (reader.Read())
+                                    {
+                                        var nextPaymentDate = reader["NextPaymentDate"] != DBNull.Value
+                                            ? Convert.ToDateTime(reader["NextPaymentDate"])
+                                            : payment.DueDate;
+                                        var period = reader["Period"].ToString();
+
+                                        // Calculate new next payment date
+                                        DateTime newNextDate = nextPaymentDate;
+                                        for (int i = 0; i < monthsPaid; i++)
+                                        {
+                                            newNextDate = CalculateNextPaymentDate(newNextDate, period,
+                                                reader["ChargeDay"] != DBNull.Value ? Convert.ToInt32(reader["ChargeDay"]) : (int?)null);
+                                        }
+
+                                        // Update ClientService
+                                        using (var updateCsCmd = new SQLiteCommand(@"
+                                            UPDATE ClientServices 
+                                            SET LastPaidDate = @lastPaid,
+                                                NextPaymentDate = @nextDate
+                                            WHERE Id = @id", connection))
+                                        {
+                                            updateCsCmd.Parameters.AddWithValue("@id", payment.ClientServiceId.Value);
+                                            updateCsCmd.Parameters.AddWithValue("@lastPaid", DateTime.Now.Date);
+                                            updateCsCmd.Parameters.AddWithValue("@nextDate", newNextDate);
+                                            updateCsCmd.ExecuteNonQuery();
+                                        }
+
+                                        // Delete any existing future payments for the paid period
+                                        using (var deleteCmd = new SQLiteCommand(@"
+                                            DELETE FROM Payments 
+                                            WHERE ClientServiceId = @csId 
+                                              AND IsPaid = 0 
+                                              AND DueDate > @currentDue
+                                              AND DueDate < @nextDate", connection))
+                                        {
+                                            deleteCmd.Parameters.AddWithValue("@csId", payment.ClientServiceId.Value);
+                                            deleteCmd.Parameters.AddWithValue("@currentDue", payment.DueDate);
+                                            deleteCmd.Parameters.AddWithValue("@nextDate", newNextDate);
+                                            deleteCmd.ExecuteNonQuery();
+                                        }
+                                    }
+                                }
                             }
                         }
 
                         transaction.Commit();
-                        LogManager.LogInfo($"Payment recorded for client {payment.ClientId}, amount: {payment.Amount}");
+                        LogManager.LogInfo($"Payment marked as paid: ID {paymentId}, Method: {paymentMethod}");
                     }
                     catch
                     {
@@ -783,21 +724,132 @@ namespace BillPilot
             }
         }
 
+        public void CreatePaymentForClientService(int clientServiceId)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // Get client service details
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT cs.*, s.Name as ServiceName, 
+                           COALESCE(cs.CustomPrice, s.BasePrice) as Amount
+                    FROM ClientServices cs
+                    INNER JOIN Services s ON cs.ServiceId = s.Id
+                    WHERE cs.Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", clientServiceId);
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        if (reader.Read())
+                        {
+                            var payment = new Payment
+                            {
+                                ClientId = Convert.ToInt32(reader["ClientId"]),
+                                ServiceId = Convert.ToInt32(reader["ServiceId"]),
+                                ClientServiceId = clientServiceId,
+                                PaymentType = reader["ServiceType"].ToString() == "Periodic" ? "Periodic" : "OneOff",
+                                DueDate = reader["NextPaymentDate"] != DBNull.Value
+                                    ? Convert.ToDateTime(reader["NextPaymentDate"])
+                                    : DateTime.Now.Date,
+                                Amount = Convert.ToDecimal(reader["Amount"]),
+                                CreatedBy = SessionManager.CurrentUser
+                            };
+
+                            CreatePayment(payment);
+                        }
+                    }
+                }
+            }
+        }
+
+        public void CreatePayment(Payment payment)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    INSERT INTO Payments (ClientId, ServiceId, ClientServiceId, PaymentType, DueDate, Amount, IsPaid, IsOverdue, CreatedBy)
+                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", connection))
+                {
+                    cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
+                    cmd.Parameters.AddWithValue("@serviceId", (object)payment.ServiceId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@clientServiceId", (object)payment.ClientServiceId ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@paymentType", payment.PaymentType);
+                    cmd.Parameters.AddWithValue("@dueDate", payment.DueDate);
+                    cmd.Parameters.AddWithValue("@amount", payment.Amount);
+                    cmd.Parameters.AddWithValue("@createdBy", payment.CreatedBy);
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private DateTime CalculateNextPaymentDate(DateTime currentDate, string period, int? chargeDay)
+        {
+            switch (period?.ToLower())
+            {
+                case "weekly":
+                    return currentDate.AddDays(7);
+
+                case "monthly":
+                    var nextMonth = currentDate.AddMonths(1);
+                    if (chargeDay.HasValue)
+                    {
+                        var day = chargeDay.Value;
+                        var daysInMonth = DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextMonth.Year, nextMonth.Month, day);
+                    }
+                    return nextMonth;
+
+                case "quarterly":
+                    var nextQuarter = currentDate.AddMonths(3);
+                    if (chargeDay.HasValue)
+                    {
+                        var day = chargeDay.Value;
+                        var daysInMonth = DateTime.DaysInMonth(nextQuarter.Year, nextQuarter.Month);
+                        if (day > daysInMonth)
+                            day = daysInMonth;
+                        return new DateTime(nextQuarter.Year, nextQuarter.Month, day);
+                    }
+                    return nextQuarter;
+
+                case "yearly":
+                    var nextYear = currentDate.AddYears(1);
+                    if (chargeDay.HasValue && chargeDay.Value <= 365)
+                    {
+                        return new DateTime(nextYear.Year, 1, 1).AddDays(chargeDay.Value - 1);
+                    }
+                    return nextYear;
+
+                default:
+                    return currentDate.AddMonths(1);
+            }
+        }
+
         private Payment MapPaymentFromReader(SQLiteDataReader reader)
         {
             return new Payment
             {
                 Id = Convert.ToInt32(reader["Id"]),
                 ClientId = Convert.ToInt32(reader["ClientId"]),
-                ChargeId = reader["ChargeId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ChargeId"]),
+                ServiceId = reader["ServiceId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ServiceId"]),
+                ClientServiceId = reader["ClientServiceId"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ClientServiceId"]),
+                PaymentType = reader["PaymentType"].ToString(),
+                DueDate = Convert.ToDateTime(reader["DueDate"]),
+                PaidDate = reader["PaidDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["PaidDate"]),
                 Amount = Convert.ToDecimal(reader["Amount"]),
-                PaymentDate = Convert.ToDateTime(reader["PaymentDate"]),
+                IsPaid = Convert.ToBoolean(reader["IsPaid"]),
+                IsOverdue = Convert.ToBoolean(reader["IsOverdue"]),
                 PaymentMethod = reader["PaymentMethod"]?.ToString(),
                 Reference = reader["Reference"]?.ToString(),
                 Notes = reader["Notes"]?.ToString(),
                 CreatedDate = Convert.ToDateTime(reader["CreatedDate"]),
                 CreatedBy = reader["CreatedBy"]?.ToString(),
-                ClientName = reader["ClientName"].ToString()
+                ClientName = reader.GetOrdinal("ClientName") >= 0 ? reader["ClientName"].ToString() : "",
+                ServiceName = reader.GetOrdinal("ServiceName") >= 0 ? reader["ServiceName"]?.ToString() : ""
             };
         }
     }
@@ -845,25 +897,56 @@ namespace BillPilot
             using (var connection = dbManager.GetConnection())
             {
                 connection.Open();
-
-                // Calculate next charge date
-                var nextChargeDate = CalculateNextChargeDate(clientService);
-
-                using (var cmd = new SQLiteCommand(@"
-                    INSERT INTO ClientServices (ClientId, ServiceId, ServiceType, CustomPrice, Period, ChargeDay, StartDate, NextChargeDate, IsActive)
-                    VALUES (@clientId, @serviceId, @serviceType, @customPrice, @period, @chargeDay, @startDate, @nextChargeDate, @isActive)", connection))
+                using (var transaction = connection.BeginTransaction())
                 {
-                    cmd.Parameters.AddWithValue("@clientId", clientService.ClientId);
-                    cmd.Parameters.AddWithValue("@serviceId", clientService.ServiceId);
-                    cmd.Parameters.AddWithValue("@serviceType", clientService.ServiceType);
-                    cmd.Parameters.AddWithValue("@customPrice", (object)clientService.CustomPrice ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
-                    cmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
-                    cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
+                    try
+                    {
+                        // Calculate next payment date
+                        var nextPaymentDate = CalculateInitialPaymentDate(clientService);
 
-                    cmd.ExecuteNonQuery();
+                        // Insert client service
+                        using (var cmd = new SQLiteCommand(@"
+                            INSERT INTO ClientServices (ClientId, ServiceId, ServiceType, CustomPrice, Period, ChargeDay, StartDate, NextPaymentDate, IsActive)
+                            VALUES (@clientId, @serviceId, @serviceType, @customPrice, @period, @chargeDay, @startDate, @nextPaymentDate, @isActive);
+                            SELECT last_insert_rowid();", connection))
+                        {
+                            cmd.Parameters.AddWithValue("@clientId", clientService.ClientId);
+                            cmd.Parameters.AddWithValue("@serviceId", clientService.ServiceId);
+                            cmd.Parameters.AddWithValue("@serviceType", clientService.ServiceType);
+                            cmd.Parameters.AddWithValue("@customPrice", (object)clientService.CustomPrice ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
+                            cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
+                            cmd.Parameters.AddWithValue("@nextPaymentDate", nextPaymentDate);
+                            cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
+
+                            var clientServiceId = Convert.ToInt32(cmd.ExecuteScalar());
+
+                            // Create initial payment
+                            if (clientService.IsActive)
+                            {
+                                var paymentManager = new PaymentManager(dbManager);
+                                var payment = new Payment
+                                {
+                                    ClientId = clientService.ClientId,
+                                    ServiceId = clientService.ServiceId,
+                                    ClientServiceId = clientServiceId,
+                                    PaymentType = clientService.ServiceType,
+                                    DueDate = nextPaymentDate,
+                                    Amount = clientService.CustomPrice ?? GetServicePrice(clientService.ServiceId),
+                                    CreatedBy = SessionManager.CurrentUser
+                                };
+                                paymentManager.CreatePayment(payment);
+                            }
+                        }
+
+                        transaction.Commit();
+                    }
+                    catch
+                    {
+                        transaction.Rollback();
+                        throw;
+                    }
                 }
             }
         }
@@ -874,15 +957,14 @@ namespace BillPilot
             {
                 connection.Open();
 
-                // Calculate next charge date only if it hasn't been set already
-                DateTime nextChargeDate;
-                if (clientService.NextChargeDate == null || clientService.NextChargeDate.Value.Year == 1)
+                DateTime nextPaymentDate;
+                if (clientService.NextPaymentDate == null || clientService.NextPaymentDate.Value.Year == 1)
                 {
-                    nextChargeDate = CalculateNextChargeDate(clientService);
+                    nextPaymentDate = CalculateInitialPaymentDate(clientService);
                 }
                 else
                 {
-                    nextChargeDate = clientService.NextChargeDate.Value;
+                    nextPaymentDate = clientService.NextPaymentDate.Value;
                 }
 
                 using (var cmd = new SQLiteCommand(@"
@@ -893,7 +975,7 @@ namespace BillPilot
                         Period = @period,
                         ChargeDay = @chargeDay,
                         StartDate = @startDate,
-                        NextChargeDate = @nextChargeDate,
+                        NextPaymentDate = @nextPaymentDate,
                         IsActive = @isActive
                     WHERE Id = @id", connection))
                 {
@@ -904,7 +986,7 @@ namespace BillPilot
                     cmd.Parameters.AddWithValue("@period", (object)clientService.Period ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@chargeDay", (object)clientService.ChargeDay ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@startDate", clientService.StartDate);
-                    cmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
+                    cmd.Parameters.AddWithValue("@nextPaymentDate", nextPaymentDate);
                     cmd.Parameters.AddWithValue("@isActive", clientService.IsActive);
 
                     cmd.ExecuteNonQuery();
@@ -917,112 +999,26 @@ namespace BillPilot
             using (var connection = dbManager.GetConnection())
             {
                 connection.Open();
-                using (var cmd = new SQLiteCommand("DELETE FROM ClientServices WHERE Id = @id", connection))
-                {
-                    cmd.Parameters.AddWithValue("@id", id);
-                    cmd.ExecuteNonQuery();
-                }
-            }
-        }
-
-        public void ProcessAutoCharge(int clientServiceId)
-        {
-            using (var connection = dbManager.GetConnection())
-            {
-                connection.Open();
                 using (var transaction = connection.BeginTransaction())
                 {
                     try
                     {
-                        // Get client service details
-                        ClientService clientService = null;
-                        Client client = null;
-                        decimal amount = 0;
-
-                        using (var cmd = new SQLiteCommand(@"
-                            SELECT cs.*, s.Name as ServiceName, c.PaymentTermsDays,
-                                   COALESCE(cs.CustomPrice, s.BasePrice) as Amount
-                            FROM ClientServices cs
-                            INNER JOIN Services s ON cs.ServiceId = s.Id
-                            INNER JOIN Clients c ON cs.ClientId = c.Id
-                            WHERE cs.Id = @id", connection))
+                        // Delete unpaid payments for this service
+                        using (var delPayCmd = new SQLiteCommand(
+                            "DELETE FROM Payments WHERE ClientServiceId = @id AND IsPaid = 0", connection))
                         {
-                            cmd.Parameters.AddWithValue("@id", clientServiceId);
-
-                            using (var reader = cmd.ExecuteReader())
-                            {
-                                if (reader.Read())
-                                {
-                                    clientService = new ClientService
-                                    {
-                                        Id = Convert.ToInt32(reader["Id"]),
-                                        ClientId = Convert.ToInt32(reader["ClientId"]),
-                                        ServiceId = Convert.ToInt32(reader["ServiceId"]),
-                                        ServiceType = reader["ServiceType"].ToString(),
-                                        Period = reader["Period"]?.ToString(),
-                                        ChargeDay = reader["ChargeDay"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ChargeDay"]),
-                                        ServiceName = reader["ServiceName"].ToString(),
-                                        LastChargeDate = reader["LastChargeDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["LastChargeDate"])
-                                    };
-                                    amount = Convert.ToDecimal(reader["Amount"]);
-                                    var paymentTerms = Convert.ToInt32(reader["PaymentTermsDays"]);
-
-                                    client = new Client { PaymentTermsDays = paymentTerms };
-                                }
-                            }
+                            delPayCmd.Parameters.AddWithValue("@id", id);
+                            delPayCmd.ExecuteNonQuery();
                         }
 
-                        if (clientService != null)
+                        // Delete client service
+                        using (var cmd = new SQLiteCommand("DELETE FROM ClientServices WHERE Id = @id", connection))
                         {
-                            // Create charge
-                            var charge = new Charge
-                            {
-                                ClientId = clientService.ClientId,
-                                ServiceId = clientService.ServiceId,
-                                ChargeType = "Auto",
-                                Description = $"Auto charge for {clientService.ServiceName} ({clientService.Period})",
-                                Amount = amount,
-                                ChargeDate = DateTime.Now.Date,
-                                DueDate = DateTime.Now.Date.AddDays(client.PaymentTermsDays),
-                                CreatedBy = "System"
-                            };
-
-                            // Insert charge
-                            using (var cmd = new SQLiteCommand(@"
-                                INSERT INTO Charges (ClientId, ServiceId, ChargeType, Description, Amount, ChargeDate, DueDate, CreatedBy)
-                                VALUES (@clientId, @serviceId, @chargeType, @description, @amount, @chargeDate, @dueDate, @createdBy)", connection))
-                            {
-                                cmd.Parameters.AddWithValue("@clientId", charge.ClientId);
-                                cmd.Parameters.AddWithValue("@serviceId", charge.ServiceId);
-                                cmd.Parameters.AddWithValue("@chargeType", charge.ChargeType);
-                                cmd.Parameters.AddWithValue("@description", charge.Description);
-                                cmd.Parameters.AddWithValue("@amount", charge.Amount);
-                                cmd.Parameters.AddWithValue("@chargeDate", charge.ChargeDate);
-                                cmd.Parameters.AddWithValue("@dueDate", charge.DueDate);
-                                cmd.Parameters.AddWithValue("@createdBy", charge.CreatedBy);
-
-                                cmd.ExecuteNonQuery();
-                            }
-
-                            // Update client service with proper next charge date calculation
-                            clientService.LastChargeDate = DateTime.Now.Date;
-                            var nextChargeDate = CalculateNextChargeDate(clientService);
-
-                            using (var updateCmd = new SQLiteCommand(@"
-                                UPDATE ClientServices 
-                                SET LastChargeDate = @lastChargeDate,
-                                    NextChargeDate = @nextChargeDate
-                                WHERE Id = @id", connection))
-                            {
-                                updateCmd.Parameters.AddWithValue("@lastChargeDate", DateTime.Now.Date);
-                                updateCmd.Parameters.AddWithValue("@nextChargeDate", nextChargeDate);
-                                updateCmd.Parameters.AddWithValue("@id", clientServiceId);
-                                updateCmd.ExecuteNonQuery();
-                            }
+                            cmd.Parameters.AddWithValue("@id", id);
+                            cmd.ExecuteNonQuery();
                         }
 
                         transaction.Commit();
-                        LogManager.LogInfo($"Auto charge processed for client service {clientServiceId}");
                     }
                     catch
                     {
@@ -1033,49 +1029,107 @@ namespace BillPilot
             }
         }
 
-        private DateTime CalculateNextChargeDate(ClientService clientService)
+        public void CheckAndCreateUpcomingPayments()
         {
-            var baseDate = clientService.LastChargeDate ?? clientService.StartDate;
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+
+                // Get all active periodic services that need payment creation
+                using (var cmd = new SQLiteCommand(@"
+                    SELECT cs.*, s.BasePrice
+                    FROM ClientServices cs
+                    INNER JOIN Services s ON cs.ServiceId = s.Id
+                    WHERE cs.IsActive = 1 
+                      AND cs.ServiceType = 'Periodic'
+                      AND cs.NextPaymentDate <= date('now', '+30 days')
+                      AND NOT EXISTS (
+                          SELECT 1 FROM Payments p 
+                          WHERE p.ClientServiceId = cs.Id 
+                            AND p.DueDate = cs.NextPaymentDate
+                      )", connection))
+                {
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        var servicesToProcess = new List<(int Id, int ClientId, int ServiceId, DateTime NextDate, decimal Amount, string Period, int? ChargeDay)>();
+
+                        while (reader.Read())
+                        {
+                            servicesToProcess.Add((
+                                Convert.ToInt32(reader["Id"]),
+                                Convert.ToInt32(reader["ClientId"]),
+                                Convert.ToInt32(reader["ServiceId"]),
+                                Convert.ToDateTime(reader["NextPaymentDate"]),
+                                reader["CustomPrice"] != DBNull.Value ? Convert.ToDecimal(reader["CustomPrice"]) : Convert.ToDecimal(reader["BasePrice"]),
+                                reader["Period"].ToString(),
+                                reader["ChargeDay"] != DBNull.Value ? Convert.ToInt32(reader["ChargeDay"]) : (int?)null
+                            ));
+                        }
+
+                        // Process each service
+                        var paymentManager = new PaymentManager(dbManager);
+                        foreach (var service in servicesToProcess)
+                        {
+                            var payment = new Payment
+                            {
+                                ClientId = service.ClientId,
+                                ServiceId = service.ServiceId,
+                                ClientServiceId = service.Id,
+                                PaymentType = "Periodic",
+                                DueDate = service.NextDate,
+                                Amount = service.Amount,
+                                CreatedBy = "System"
+                            };
+                            paymentManager.CreatePayment(payment);
+                        }
+                    }
+                }
+            }
+        }
+
+        private DateTime CalculateInitialPaymentDate(ClientService clientService)
+        {
+            var baseDate = clientService.StartDate;
 
             if (clientService.ServiceType != "Periodic" || string.IsNullOrEmpty(clientService.Period))
-                return baseDate.AddDays(30); // Default 30 days
+                return baseDate;
 
-            switch (clientService.Period.ToLower())
+            // For periodic services, calculate the first payment date
+            if (clientService.ChargeDay.HasValue)
             {
-                case "weekly":
-                    return baseDate.AddDays(7);
-                case "monthly":
-                    var nextMonth = baseDate.AddMonths(1);
-                    if (clientService.ChargeDay.HasValue)
-                    {
+                switch (clientService.Period.ToLower())
+                {
+                    case "monthly":
                         var day = clientService.ChargeDay.Value;
-                        // Handle day overflow (e.g., 31st in a month with 30 days)
-                        var daysInMonth = DateTime.DaysInMonth(nextMonth.Year, nextMonth.Month);
-                        if (day > daysInMonth)
-                            day = daysInMonth;
-                        return new DateTime(nextMonth.Year, nextMonth.Month, day);
-                    }
-                    return nextMonth;
-                case "quarterly":
-                    var nextQuarter = baseDate.AddMonths(3);
-                    if (clientService.ChargeDay.HasValue)
-                    {
-                        var day = clientService.ChargeDay.Value;
-                        var daysInMonth = DateTime.DaysInMonth(nextQuarter.Year, nextQuarter.Month);
-                        if (day > daysInMonth)
-                            day = daysInMonth;
-                        return new DateTime(nextQuarter.Year, nextQuarter.Month, day);
-                    }
-                    return nextQuarter;
-                case "yearly":
-                    var nextYear = baseDate.AddYears(1);
-                    if (clientService.ChargeDay.HasValue && clientService.ChargeDay.Value <= 365)
-                    {
-                        return new DateTime(nextYear.Year, 1, 1).AddDays(clientService.ChargeDay.Value - 1);
-                    }
-                    return nextYear;
-                default:
-                    return baseDate.AddDays(30);
+                        if (day > DateTime.DaysInMonth(baseDate.Year, baseDate.Month))
+                            day = DateTime.DaysInMonth(baseDate.Year, baseDate.Month);
+
+                        var firstDate = new DateTime(baseDate.Year, baseDate.Month, day);
+                        if (firstDate < baseDate)
+                            firstDate = firstDate.AddMonths(1);
+                        return firstDate;
+
+                    case "yearly":
+                        var yearDate = new DateTime(baseDate.Year, 1, 1).AddDays(clientService.ChargeDay.Value - 1);
+                        if (yearDate < baseDate)
+                            yearDate = yearDate.AddYears(1);
+                        return yearDate;
+                }
+            }
+
+            return baseDate;
+        }
+
+        private decimal GetServicePrice(int serviceId)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand("SELECT BasePrice FROM Services WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", serviceId);
+                    return Convert.ToDecimal(cmd.ExecuteScalar());
+                }
             }
         }
 
@@ -1092,10 +1146,11 @@ namespace BillPilot
                 ChargeDay = reader["ChargeDay"] == DBNull.Value ? null : (int?)Convert.ToInt32(reader["ChargeDay"]),
                 StartDate = Convert.ToDateTime(reader["StartDate"]),
                 EndDate = reader["EndDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["EndDate"]),
-                LastChargeDate = reader["LastChargeDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["LastChargeDate"]),
-                NextChargeDate = reader["NextChargeDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["NextChargeDate"]),
+                LastPaidDate = reader["LastPaidDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["LastPaidDate"]),
+                NextPaymentDate = reader["NextPaymentDate"] == DBNull.Value ? null : (DateTime?)Convert.ToDateTime(reader["NextPaymentDate"]),
                 IsActive = Convert.ToBoolean(reader["IsActive"]),
-                ServiceName = reader["ServiceName"].ToString()
+                ServiceName = reader["ServiceName"].ToString(),
+                Price = Convert.ToDecimal(reader["Price"])
             };
         }
     }
@@ -1269,10 +1324,9 @@ namespace BillPilot
                     SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
                     FROM Payments p
                     INNER JOIN Clients c ON p.ClientId = c.Id
-                    LEFT JOIN Charges ch ON p.ChargeId = ch.Id
-                    LEFT JOIN Services s ON ch.ServiceId = s.Id
-                    WHERE p.PaymentDate BETWEEN @fromDate AND @toDate
-                    ORDER BY p.PaymentDate DESC", connection))
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 1 AND p.PaidDate BETWEEN @fromDate AND @toDate
+                    ORDER BY p.PaidDate DESC", connection))
                 {
                     cmd.Parameters.AddWithValue("@fromDate", fromDate.Date);
                     cmd.Parameters.AddWithValue("@toDate", toDate.Date);
@@ -1285,7 +1339,7 @@ namespace BillPilot
                             {
                                 ClientName = reader["ClientName"].ToString(),
                                 ServiceName = reader["ServiceName"]?.ToString() ?? "General Payment",
-                                PaymentDate = Convert.ToDateTime(reader["PaymentDate"]),
+                                PaymentDate = Convert.ToDateTime(reader["PaidDate"]),
                                 Amount = Convert.ToDecimal(reader["Amount"]),
                                 PaymentMethod = reader["PaymentMethod"]?.ToString() ?? "",
                                 Reference = reader["Reference"]?.ToString() ?? ""
@@ -1304,12 +1358,13 @@ namespace BillPilot
             {
                 connection.Open();
                 using (var cmd = new SQLiteCommand(@"
-                    SELECT ch.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
-                    FROM Charges ch
-                    INNER JOIN Clients c ON ch.ClientId = c.Id
-                    LEFT JOIN Services s ON ch.ServiceId = s.Id
-                    WHERE ch.IsPaid = 0
-                    ORDER BY ch.DueDate", connection))
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName,
+                           CAST(julianday('now') - julianday(p.DueDate) as INTEGER) as DaysOverdue
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 0
+                    ORDER BY p.DueDate", connection))
                 {
                     using (var reader = cmd.ExecuteReader())
                     {
@@ -1318,11 +1373,10 @@ namespace BillPilot
                             items.Add(new OutstandingReportItem
                             {
                                 ClientName = reader["ClientName"].ToString(),
-                                ServiceName = reader["ServiceName"]?.ToString() ?? reader["Description"].ToString(),
-                                ChargeDate = Convert.ToDateTime(reader["ChargeDate"]),
+                                ServiceName = reader["ServiceName"]?.ToString() ?? "Payment",
                                 DueDate = Convert.ToDateTime(reader["DueDate"]),
                                 Amount = Convert.ToDecimal(reader["Amount"]),
-                                PaidAmount = Convert.ToDecimal(reader["PaidAmount"])
+                                DaysOverdue = Convert.ToInt32(reader["DaysOverdue"])
                             });
                         }
                     }
@@ -1340,14 +1394,13 @@ namespace BillPilot
                 using (var cmd = new SQLiteCommand(@"
                     SELECT s.Name as ServiceName,
                            COUNT(DISTINCT cs.ClientId) as ClientCount,
-                           COUNT(ch.Id) as TotalCharges,
-                           COALESCE(SUM(p.Amount), 0) as TotalRevenue,
+                           COUNT(p.Id) as TotalPayments,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 1 THEN p.Amount ELSE 0 END), 0) as TotalRevenue,
                            COALESCE(AVG(cs.CustomPrice), s.BasePrice) as AveragePrice,
-                           COALESCE(SUM(CASE WHEN ch.IsPaid = 0 THEN ch.Amount - ch.PaidAmount ELSE 0 END), 0) as OutstandingAmount
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 0 THEN p.Amount ELSE 0 END), 0) as OutstandingAmount
                     FROM Services s
                     LEFT JOIN ClientServices cs ON s.Id = cs.ServiceId
-                    LEFT JOIN Charges ch ON s.Id = ch.ServiceId
-                    LEFT JOIN Payments p ON ch.Id = p.ChargeId
+                    LEFT JOIN Payments p ON s.Id = p.ServiceId
                     WHERE s.IsActive = 1
                     GROUP BY s.Id, s.Name, s.BasePrice
                     ORDER BY TotalRevenue DESC", connection))
@@ -1360,7 +1413,7 @@ namespace BillPilot
                             {
                                 ServiceName = reader["ServiceName"].ToString(),
                                 ClientCount = Convert.ToInt32(reader["ClientCount"]),
-                                TotalCharges = Convert.ToInt32(reader["TotalCharges"]),
+                                TotalPayments = Convert.ToInt32(reader["TotalPayments"]),
                                 TotalRevenue = Convert.ToDecimal(reader["TotalRevenue"]),
                                 AveragePrice = Convert.ToDecimal(reader["AveragePrice"]),
                                 OutstandingAmount = Convert.ToDecimal(reader["OutstandingAmount"])
@@ -1381,11 +1434,10 @@ namespace BillPilot
                 using (var cmd = new SQLiteCommand(@"
                     SELECT c.Id, c.FirstName || ' ' || c.LastName as ClientName,
                            COUNT(DISTINCT cs.ServiceId) as ServiceCount,
-                           COALESCE(SUM(ch.Amount), 0) as TotalCharged,
-                           COALESCE(SUM(p.Amount), 0) as TotalPaid
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 1 THEN p.Amount ELSE 0 END), 0) as TotalPaid,
+                           COALESCE(SUM(CASE WHEN p.IsPaid = 0 THEN p.Amount ELSE 0 END), 0) as TotalOutstanding
                     FROM Clients c
                     LEFT JOIN ClientServices cs ON c.Id = cs.ClientId
-                    LEFT JOIN Charges ch ON c.Id = ch.ClientId
                     LEFT JOIN Payments p ON c.Id = p.ClientId
                     WHERE c.IsActive = 1
                     GROUP BY c.Id, ClientName
@@ -1399,8 +1451,8 @@ namespace BillPilot
                             {
                                 ClientName = reader["ClientName"].ToString(),
                                 ServiceCount = Convert.ToInt32(reader["ServiceCount"]),
-                                TotalCharged = Convert.ToDecimal(reader["TotalCharged"]),
-                                TotalPaid = Convert.ToDecimal(reader["TotalPaid"])
+                                TotalPaid = Convert.ToDecimal(reader["TotalPaid"]),
+                                TotalOutstanding = Convert.ToDecimal(reader["TotalOutstanding"])
                             });
                         }
                     }
@@ -1411,27 +1463,6 @@ namespace BillPilot
     }
 
     // Report Models
-    public class UpcomingCharge
-    {
-        public int Id { get; set; }
-        public string ClientName { get; set; }
-        public string ServiceName { get; set; }
-        public decimal Amount { get; set; }
-        public DateTime NextChargeDate { get; set; }
-        public string Period { get; set; }
-    }
-
-    public class DelayedPayment
-    {
-        public int ClientId { get; set; }
-        public string ClientName { get; set; }
-        public decimal TotalDue { get; set; }
-        public DateTime OldestDueDate { get; set; }
-        public int DaysOverdue { get; set; }
-        public string Phone { get; set; }
-        public string Email { get; set; }
-    }
-
     public class RevenueReportItem
     {
         public string ClientName { get; set; }
@@ -1446,19 +1477,16 @@ namespace BillPilot
     {
         public string ClientName { get; set; }
         public string ServiceName { get; set; }
-        public DateTime ChargeDate { get; set; }
         public DateTime DueDate { get; set; }
         public decimal Amount { get; set; }
-        public decimal PaidAmount { get; set; }
-        public decimal Outstanding => Amount - PaidAmount;
-        public int DaysOverdue => (DateTime.Now.Date - DueDate).Days;
+        public int DaysOverdue { get; set; }
     }
 
     public class ServicePerformanceItem
     {
         public string ServiceName { get; set; }
         public int ClientCount { get; set; }
-        public int TotalCharges { get; set; }
+        public int TotalPayments { get; set; }
         public decimal TotalRevenue { get; set; }
         public decimal AveragePrice { get; set; }
         public decimal OutstandingAmount { get; set; }
@@ -1468,9 +1496,7 @@ namespace BillPilot
     {
         public string ClientName { get; set; }
         public int ServiceCount { get; set; }
-        public decimal TotalCharged { get; set; }
         public decimal TotalPaid { get; set; }
-        public decimal Outstanding => TotalCharged - TotalPaid;
-        public decimal ProfitMargin { get; set; }
+        public decimal TotalOutstanding { get; set; }
     }
 }

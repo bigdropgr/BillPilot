@@ -12,18 +12,18 @@ namespace BillPilot
     public partial class UpcomingPaymentsControl : UserControl
     {
         private DatabaseManager dbManager;
-        private ChargeManager chargeManager;
+        private PaymentManager paymentManager;
         private DataGridView upcomingGrid;
         private DateTimePicker fromDatePicker, toDatePicker;
-        private Button refreshButton, processChargeButton;
+        private Button refreshButton, editPaymentButton;
         private Label totalLabel;
 
         public UpcomingPaymentsControl(DatabaseManager dbManager)
         {
             this.dbManager = dbManager;
-            this.chargeManager = new ChargeManager(dbManager);
+            this.paymentManager = new PaymentManager(dbManager);
             InitializeComponent();
-            LoadUpcomingCharges();
+            LoadUpcomingPayments();
         }
 
         private void InitializeComponent()
@@ -56,14 +56,14 @@ namespace BillPilot
             refreshButton.Location = new Point(640, 15);
             refreshButton.Size = new Size(100, 30);
             refreshButton.UseVisualStyleBackColor = true;
-            refreshButton.Click += (s, e) => LoadUpcomingCharges();
+            refreshButton.Click += (s, e) => LoadUpcomingPayments();
 
-            processChargeButton = new Button();
-            processChargeButton.Text = LocalizationManager.GetString("process_charge");
-            processChargeButton.Location = new Point(750, 15);
-            processChargeButton.Size = new Size(120, 30);
-            processChargeButton.UseVisualStyleBackColor = true;
-            processChargeButton.Click += ProcessChargeButton_Click;
+            editPaymentButton = new Button();
+            editPaymentButton.Text = LocalizationManager.GetString("edit_payment");
+            editPaymentButton.Location = new Point(750, 15);
+            editPaymentButton.Size = new Size(120, 30);
+            editPaymentButton.UseVisualStyleBackColor = true;
+            editPaymentButton.Click += EditPaymentButton_Click;
 
             totalLabel = new Label();
             totalLabel.Text = LocalizationManager.GetString("total") + ": €0.00";
@@ -100,12 +100,12 @@ namespace BillPilot
             });
             upcomingGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                DataPropertyName = "NextChargeDate",
-                HeaderText = LocalizationManager.GetString("next_charge_date"),
+                DataPropertyName = "DueDate",
+                HeaderText = LocalizationManager.GetString("due_date"),
                 Width = 120,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "dd/MM/yyyy" }
             });
-            upcomingGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Period", HeaderText = LocalizationManager.GetString("period"), Width = 100 });
+            upcomingGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "PaymentType", HeaderText = LocalizationManager.GetString("service_type"), Width = 100 });
 
             // Style the grid
             upcomingGrid.EnableHeadersVisualStyles = false;
@@ -115,57 +115,38 @@ namespace BillPilot
             upcomingGrid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
 
             this.Controls.AddRange(new Control[] {
-                fromLabel, fromDatePicker, toLabel, toDatePicker, refreshButton, processChargeButton, totalLabel, upcomingGrid
+                fromLabel, fromDatePicker, toLabel, toDatePicker, refreshButton, editPaymentButton, totalLabel, upcomingGrid
             });
         }
 
-        private void LoadUpcomingCharges()
+        private void LoadUpcomingPayments()
         {
             try
             {
-                var upcomingCharges = chargeManager.GetUpcomingAutoCharges(fromDatePicker.Value, toDatePicker.Value);
-                upcomingGrid.DataSource = upcomingCharges;
+                var upcomingPayments = paymentManager.GetUpcomingPayments(fromDatePicker.Value, toDatePicker.Value);
+                upcomingGrid.DataSource = upcomingPayments;
 
                 // Calculate and display total
-                decimal total = upcomingCharges.Sum(c => c.Amount);
+                decimal total = upcomingPayments.Sum(p => p.Amount);
                 totalLabel.Text = LocalizationManager.GetString("total") + $": €{total:F2}";
             }
             catch (Exception ex)
             {
-                LogManager.LogError("Error loading upcoming charges", ex);
-                MessageBox.Show("Error loading upcoming charges. Please check the log for details.",
+                LogManager.LogError("Error loading upcoming payments", ex);
+                MessageBox.Show("Error loading upcoming payments. Please check the log for details.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
-        private void ProcessChargeButton_Click(object sender, EventArgs e)
+        private void EditPaymentButton_Click(object sender, EventArgs e)
         {
             if (upcomingGrid.SelectedRows.Count > 0)
             {
-                var result = MessageBox.Show("Process selected auto-charge now?",
-                    LocalizationManager.GetString("confirm"), MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-
-                if (result == DialogResult.Yes)
+                var selectedPayment = (Payment)upcomingGrid.SelectedRows[0].DataBoundItem;
+                var editForm = new EditPaymentForm(dbManager, selectedPayment);
+                if (editForm.ShowDialog() == DialogResult.OK)
                 {
-                    try
-                    {
-                        var selectedCharge = (UpcomingCharge)upcomingGrid.SelectedRows[0].DataBoundItem;
-
-                        // Process the charge
-                        var clientServiceManager = new ClientServiceManager(dbManager);
-                        clientServiceManager.ProcessAutoCharge(selectedCharge.Id);
-
-                        MessageBox.Show("Charge processed successfully!",
-                            LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                        LoadUpcomingCharges();
-                    }
-                    catch (Exception ex)
-                    {
-                        LogManager.LogError("Error processing charge", ex);
-                        MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                            MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
+                    LoadUpcomingPayments();
                 }
             }
             else
@@ -180,15 +161,15 @@ namespace BillPilot
     public partial class DelayedPaymentsControl : UserControl
     {
         private DatabaseManager dbManager;
-        private ChargeManager chargeManager;
+        private PaymentManager paymentManager;
         private DataGridView delayedGrid;
-        private Button refreshButton, sendReminderButton, markPaidButton;
+        private Button refreshButton, markPaidButton;
         private Label totalLabel;
 
         public DelayedPaymentsControl(DatabaseManager dbManager)
         {
             this.dbManager = dbManager;
-            this.chargeManager = new ChargeManager(dbManager);
+            this.paymentManager = new PaymentManager(dbManager);
             InitializeComponent();
             LoadDelayedPayments();
         }
@@ -205,16 +186,9 @@ namespace BillPilot
             refreshButton.UseVisualStyleBackColor = true;
             refreshButton.Click += (s, e) => LoadDelayedPayments();
 
-            sendReminderButton = new Button();
-            sendReminderButton.Text = LocalizationManager.GetString("send_reminder");
-            sendReminderButton.Location = new Point(130, 15);
-            sendReminderButton.Size = new Size(120, 30);
-            sendReminderButton.UseVisualStyleBackColor = true;
-            sendReminderButton.Click += SendReminderButton_Click;
-
             markPaidButton = new Button();
             markPaidButton.Text = LocalizationManager.GetString("mark_as_paid");
-            markPaidButton.Location = new Point(260, 15);
+            markPaidButton.Location = new Point(130, 15);
             markPaidButton.Size = new Size(120, 30);
             markPaidButton.UseVisualStyleBackColor = true;
             markPaidButton.Click += MarkPaidButton_Click;
@@ -243,25 +217,24 @@ namespace BillPilot
             delayedGrid.BorderStyle = BorderStyle.Fixed3D;
 
             // Add columns
-            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ClientId", HeaderText = "ID", Visible = false });
+            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
             delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ClientName", HeaderText = LocalizationManager.GetString("client"), Width = 200 });
+            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ServiceName", HeaderText = LocalizationManager.GetString("service_name"), Width = 200 });
             delayedGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                DataPropertyName = "TotalDue",
+                DataPropertyName = "Amount",
                 HeaderText = LocalizationManager.GetString("amount"),
                 Width = 100,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "C2" }
             });
             delayedGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                DataPropertyName = "OldestDueDate",
+                DataPropertyName = "DueDate",
                 HeaderText = LocalizationManager.GetString("due_date"),
                 Width = 120,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "dd/MM/yyyy" }
             });
-            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "DaysOverdue", HeaderText = LocalizationManager.GetString("days_overdue"), Width = 100 });
-            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Phone", HeaderText = LocalizationManager.GetString("phone"), Width = 120 });
-            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Email", HeaderText = LocalizationManager.GetString("email"), Width = 200 });
+            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Notes", HeaderText = "Contact Info", Width = 250 });
 
             // Style the grid
             delayedGrid.EnableHeadersVisualStyles = false;
@@ -274,15 +247,17 @@ namespace BillPilot
             delayedGrid.CellFormatting += DelayedGrid_CellFormatting;
 
             this.Controls.AddRange(new Control[] {
-                refreshButton, sendReminderButton, markPaidButton, totalLabel, delayedGrid
+                refreshButton, markPaidButton, totalLabel, delayedGrid
             });
         }
 
         private void DelayedGrid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
-            if (e.RowIndex >= 0 && delayedGrid.Columns[e.ColumnIndex].Name == "DaysOverdue")
+            if (e.RowIndex >= 0 && delayedGrid.Columns[e.ColumnIndex].Name == "DueDate")
             {
-                var daysOverdue = Convert.ToInt32(e.Value);
+                var payment = (Payment)delayedGrid.Rows[e.RowIndex].DataBoundItem;
+                var daysOverdue = (DateTime.Now.Date - payment.DueDate).Days;
+                
                 if (daysOverdue > 60)
                 {
                     e.CellStyle.BackColor = Color.FromArgb(255, 220, 220);
@@ -300,11 +275,11 @@ namespace BillPilot
         {
             try
             {
-                var delayedPayments = chargeManager.GetOverdueCharges();
+                var delayedPayments = paymentManager.GetOverduePayments();
                 delayedGrid.DataSource = delayedPayments;
 
                 // Calculate total
-                decimal total = delayedPayments.Sum(d => d.TotalDue);
+                decimal total = delayedPayments.Sum(p => p.Amount);
                 totalLabel.Text = LocalizationManager.GetString("total_outstanding") + $": €{total:F2}";
             }
             catch (Exception ex)
@@ -315,43 +290,14 @@ namespace BillPilot
             }
         }
 
-        private void SendReminderButton_Click(object sender, EventArgs e)
-        {
-            if (delayedGrid.SelectedRows.Count > 0)
-            {
-                var selectedPayment = (DelayedPayment)delayedGrid.SelectedRows[0].DataBoundItem;
-
-                // In a real application, this would send an email/SMS
-                MessageBox.Show($"Reminder would be sent to:\n\nClient: {selectedPayment.ClientName}\nEmail: {selectedPayment.Email}\nPhone: {selectedPayment.Phone}\nAmount Due: €{selectedPayment.TotalDue:F2}\nDays Overdue: {selectedPayment.DaysOverdue}",
-                    "Send Reminder", MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                // Log the reminder
-                var contactHistory = new ContactHistory
-                {
-                    ClientId = selectedPayment.ClientId,
-                    ContactDate = DateTime.Now,
-                    ContactType = "Payment Reminder",
-                    Notes = $"Payment reminder sent for overdue amount: €{selectedPayment.TotalDue:F2} ({selectedPayment.DaysOverdue} days overdue)",
-                    CreatedBy = SessionManager.CurrentUser
-                };
-
-                new ContactHistoryManager(dbManager).AddContact(contactHistory);
-            }
-            else
-            {
-                MessageBox.Show(LocalizationManager.GetString("no_selection"),
-                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            }
-        }
-
         private void MarkPaidButton_Click(object sender, EventArgs e)
         {
             if (delayedGrid.SelectedRows.Count > 0)
             {
-                var selectedPayment = (DelayedPayment)delayedGrid.SelectedRows[0].DataBoundItem;
-                var addPaymentForm = new AddPaymentForm(dbManager, selectedPayment.ClientId);
+                var selectedPayment = (Payment)delayedGrid.SelectedRows[0].DataBoundItem;
+                var markPaidForm = new MarkPaymentPaidForm(dbManager, selectedPayment);
 
-                if (addPaymentForm.ShowDialog() == DialogResult.OK)
+                if (markPaidForm.ShowDialog() == DialogResult.OK)
                 {
                     LoadDelayedPayments();
                 }
@@ -896,7 +842,7 @@ namespace BillPilot
             servicesGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "Price",
-                HeaderText = LocalizationManager.GetString("base_price"),
+                HeaderText = LocalizationManager.GetString("custom_price"),
                 Width = 100,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "C2" }
             });
@@ -914,8 +860,8 @@ namespace BillPilot
             });
             servicesGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
-                DataPropertyName = "NextChargeDate",
-                HeaderText = LocalizationManager.GetString("next_charge_date"),
+                DataPropertyName = "NextPaymentDate",
+                HeaderText = LocalizationManager.GetString("next_payment_date"),
                 Width = 120,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "dd/MM/yyyy" }
             });
@@ -1359,88 +1305,69 @@ namespace BillPilot
         }
     }
 
-    // ===================== ADD CHARGE FORM =====================
-    public partial class AddChargeForm : Form
+    // ===================== EDIT PAYMENT FORM =====================
+    public partial class EditPaymentForm : Form
     {
         private DatabaseManager dbManager;
-        private ComboBox cboClient, cboService;
-        private TextBox txtDescription;
+        private Payment payment;
+        private DateTimePicker dtpDueDate;
         private NumericUpDown numAmount;
-        private DateTimePicker dtpChargeDate, dtpDueDate;
-        private RadioButton rbManual, rbAuto;
+        private TextBox txtNotes;
         private Button btnSave, btnCancel;
 
-        public AddChargeForm(DatabaseManager dbManager)
+        public EditPaymentForm(DatabaseManager dbManager, Payment payment)
         {
             this.dbManager = dbManager;
+            this.payment = payment;
             InitializeComponent();
-            LoadData();
+            LoadPaymentData();
         }
 
         private void InitializeComponent()
         {
-            this.Size = new Size(500, 450);
+            this.Size = new Size(400, 350);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.Text = LocalizationManager.GetString("add_charge");
+            this.Text = LocalizationManager.GetString("edit_payment");
 
             int yPos = 20;
 
-            // Client
+            // Client Info (read-only)
             var lblClient = new Label();
             lblClient.Text = LocalizationManager.GetString("client") + ":";
             lblClient.Location = new Point(20, yPos);
             lblClient.Size = new Size(100, 20);
 
-            cboClient = new ComboBox();
-            cboClient.Location = new Point(130, yPos);
-            cboClient.Size = new Size(330, 20);
-            cboClient.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboClient.SelectedIndexChanged += CboClient_SelectedIndexChanged;
-            yPos += 35;
+            var lblClientName = new Label();
+            lblClientName.Text = payment.ClientName;
+            lblClientName.Location = new Point(130, yPos);
+            lblClientName.Size = new Size(230, 20);
+            lblClientName.Font = new Font("Arial", 10, FontStyle.Bold);
+            yPos += 30;
 
-            // Service
+            // Service Info (read-only)
             var lblService = new Label();
             lblService.Text = LocalizationManager.GetString("service_name") + ":";
             lblService.Location = new Point(20, yPos);
             lblService.Size = new Size(100, 20);
 
-            cboService = new ComboBox();
-            cboService.Location = new Point(130, yPos);
-            cboService.Size = new Size(330, 20);
-            cboService.DropDownStyle = ComboBoxStyle.DropDownList;
+            var lblServiceName = new Label();
+            lblServiceName.Text = payment.ServiceName ?? "General Payment";
+            lblServiceName.Location = new Point(130, yPos);
+            lblServiceName.Size = new Size(230, 20);
+            yPos += 30;
+
+            // Due Date
+            var lblDueDate = new Label();
+            lblDueDate.Text = LocalizationManager.GetString("due_date") + ":";
+            lblDueDate.Location = new Point(20, yPos);
+            lblDueDate.Size = new Size(100, 20);
+
+            dtpDueDate = new DateTimePicker();
+            dtpDueDate.Location = new Point(130, yPos);
+            dtpDueDate.Size = new Size(200, 20);
             yPos += 35;
-
-            // Charge Type
-            var lblChargeType = new Label();
-            lblChargeType.Text = "Charge Type:";
-            lblChargeType.Location = new Point(20, yPos);
-            lblChargeType.Size = new Size(100, 20);
-
-            rbManual = new RadioButton();
-            rbManual.Text = LocalizationManager.GetString("manual_charge");
-            rbManual.Location = new Point(130, yPos);
-            rbManual.Size = new Size(120, 20);
-            rbManual.Checked = true;
-
-            rbAuto = new RadioButton();
-            rbAuto.Text = LocalizationManager.GetString("auto_charge");
-            rbAuto.Location = new Point(260, yPos);
-            rbAuto.Size = new Size(120, 20);
-            yPos += 35;
-
-            // Description
-            var lblDescription = new Label();
-            lblDescription.Text = LocalizationManager.GetString("description") + ":";
-            lblDescription.Location = new Point(20, yPos);
-            lblDescription.Size = new Size(100, 20);
-
-            txtDescription = new TextBox();
-            txtDescription.Location = new Point(130, yPos);
-            txtDescription.Size = new Size(330, 60);
-            txtDescription.Multiline = true;
-            yPos += 70;
 
             // Amount
             var lblAmount = new Label();
@@ -1456,90 +1383,50 @@ namespace BillPilot
             numAmount.ThousandsSeparator = true;
             yPos += 35;
 
-            // Charge Date
-            var lblChargeDate = new Label();
-            lblChargeDate.Text = LocalizationManager.GetString("charge_date") + ":";
-            lblChargeDate.Location = new Point(20, yPos);
-            lblChargeDate.Size = new Size(100, 20);
+            // Notes
+            var lblNotes = new Label();
+            lblNotes.Text = LocalizationManager.GetString("notes") + ":";
+            lblNotes.Location = new Point(20, yPos);
+            lblNotes.Size = new Size(100, 20);
 
-            dtpChargeDate = new DateTimePicker();
-            dtpChargeDate.Location = new Point(130, yPos);
-            dtpChargeDate.Size = new Size(200, 20);
-            yPos += 35;
-
-            // Due Date
-            var lblDueDate = new Label();
-            lblDueDate.Text = LocalizationManager.GetString("due_date") + ":";
-            lblDueDate.Location = new Point(20, yPos);
-            lblDueDate.Size = new Size(100, 20);
-
-            dtpDueDate = new DateTimePicker();
-            dtpDueDate.Location = new Point(130, yPos);
-            dtpDueDate.Size = new Size(200, 20);
-            yPos += 50;
+            txtNotes = new TextBox();
+            txtNotes.Location = new Point(130, yPos);
+            txtNotes.Size = new Size(230, 60);
+            txtNotes.Multiline = true;
+            txtNotes.ScrollBars = ScrollBars.Vertical;
+            yPos += 70;
 
             // Buttons
             btnSave = new Button();
             btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(300, yPos);
+            btnSave.Location = new Point(200, yPos);
             btnSave.Size = new Size(80, 30);
             btnSave.UseVisualStyleBackColor = true;
             btnSave.Click += BtnSave_Click;
 
             btnCancel = new Button();
             btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(390, yPos);
+            btnCancel.Location = new Point(290, yPos);
             btnCancel.Size = new Size(80, 30);
             btnCancel.UseVisualStyleBackColor = true;
             btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
 
             this.Controls.AddRange(new Control[] {
-                lblClient, cboClient, lblService, cboService,
-                lblChargeType, rbManual, rbAuto,
-                lblDescription, txtDescription,
-                lblAmount, numAmount,
-                lblChargeDate, dtpChargeDate,
-                lblDueDate, dtpDueDate,
-                btnSave, btnCancel
+                lblClient, lblClientName, lblService, lblServiceName,
+                lblDueDate, dtpDueDate, lblAmount, numAmount,
+                lblNotes, txtNotes, btnSave, btnCancel
             });
         }
 
-        private void LoadData()
+        private void LoadPaymentData()
         {
-            // Load clients
-            var clients = new ClientManager(dbManager).GetAllClients();
-            cboClient.DataSource = clients;
-            cboClient.DisplayMember = "DisplayName";
-            cboClient.ValueMember = "Id";
-
-            // Set default due date based on payment terms
-            dtpDueDate.Value = DateTime.Now.AddDays(30);
-        }
-
-        private void CboClient_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (cboClient.SelectedItem is Client client)
-            {
-                // Load services for this client
-                var clientServices = new ClientServiceManager(dbManager).GetClientServices(client.Id);
-                cboService.DataSource = clientServices;
-                cboService.DisplayMember = "ServiceName";
-                cboService.ValueMember = "ServiceId";
-
-                // Set due date based on client's payment terms
-                dtpDueDate.Value = dtpChargeDate.Value.AddDays(client.PaymentTermsDays);
-            }
+            dtpDueDate.Value = payment.DueDate;
+            numAmount.Value = payment.Amount;
+            txtNotes.Text = payment.Notes;
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
         {
-            if (cboClient.SelectedItem == null)
-            {
-                MessageBox.Show("Please select a client.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
             if (numAmount.Value <= 0)
             {
                 MessageBox.Show("Amount must be greater than 0.",
@@ -1549,431 +1436,59 @@ namespace BillPilot
 
             try
             {
-                var client = (Client)cboClient.SelectedItem;
-                var service = cboService.SelectedItem as ClientService;
-
-                var charge = new Charge
+                // Update payment in database
+                using (var connection = dbManager.GetConnection())
                 {
-                    ClientId = client.Id,
-                    ServiceId = service?.ServiceId,
-                    ChargeType = rbManual.Checked ? "Manual" : "Auto",
-                    Description = txtDescription.Text.Trim(),
-                    Amount = numAmount.Value,
-                    ChargeDate = dtpChargeDate.Value.Date,
-                    DueDate = dtpDueDate.Value.Date,
-                    CreatedBy = SessionManager.CurrentUser
-                };
+                    connection.Open();
+                    using (var cmd = new SQLiteCommand(@"
+                        UPDATE Payments 
+                        SET DueDate = @dueDate,
+                            Amount = @amount,
+                            Notes = @notes
+                        WHERE Id = @id", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@id", payment.Id);
+                        cmd.Parameters.AddWithValue("@dueDate", dtpDueDate.Value.Date);
+                        cmd.Parameters.AddWithValue("@amount", numAmount.Value);
+                        cmd.Parameters.AddWithValue("@notes", txtNotes.Text.Trim());
+                        
+                        cmd.ExecuteNonQuery();
+                    }
+                }
 
-                new ChargeManager(dbManager).CreateCharge(charge);
-                LogManager.LogInfo($"Charge created for client: {client.DisplayName}, Amount: €{charge.Amount:F2}");
-
-                MessageBox.Show("Charge created successfully!",
-                    LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-
+                LogManager.LogInfo($"Payment updated: ID {payment.Id}");
                 this.DialogResult = DialogResult.OK;
             }
             catch (Exception ex)
             {
-                LogManager.LogError("Error creating charge", ex);
+                LogManager.LogError("Error updating payment", ex);
                 MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
                     MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }
 
-    // ===================== ADD PAYMENT FORM =====================
-    public partial class AddPaymentForm : Form
+    // ===================== MARK PAYMENT PAID FORM =====================
+    public partial class MarkPaymentPaidForm : Form
     {
         private DatabaseManager dbManager;
-        private int? preselectedClientId;
-        private ComboBox cboClient, cboCharge, cboPaymentMethod;
-        private TextBox txtReference, txtNotes;
-        private NumericUpDown numAmount;
-        private DateTimePicker dtpPaymentDate;
+        private Payment payment;
+        private ComboBox cboPaymentMethod;
+        private TextBox txtReference;
+        private NumericUpDown numMonthsPaid;
+        private Label lblMonthsInfo;
         private Button btnSave, btnCancel;
-        private Label lblBalance;
 
-        public AddPaymentForm(DatabaseManager dbManager, int? clientId = null)
+        public MarkPaymentPaidForm(DatabaseManager dbManager, Payment payment)
         {
             this.dbManager = dbManager;
-            this.preselectedClientId = clientId;
-            InitializeComponent();
-            LoadData();
-        }
-
-        private void InitializeComponent()
-        {
-            this.Size = new Size(500, 500);
-            this.StartPosition = FormStartPosition.CenterParent;
-            this.FormBorderStyle = FormBorderStyle.FixedDialog;
-            this.MaximizeBox = false;
-            this.Text = LocalizationManager.GetString("add_payment");
-
-            int yPos = 20;
-
-            // Client
-            var lblClient = new Label();
-            lblClient.Text = LocalizationManager.GetString("client") + ":";
-            lblClient.Location = new Point(20, yPos);
-            lblClient.Size = new Size(100, 20);
-
-            cboClient = new ComboBox();
-            cboClient.Location = new Point(130, yPos);
-            cboClient.Size = new Size(330, 20);
-            cboClient.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboClient.SelectedIndexChanged += CboClient_SelectedIndexChanged;
-            yPos += 35;
-
-            // Outstanding Charge
-            var lblCharge = new Label();
-            lblCharge.Text = "Outstanding Charge:";
-            lblCharge.Location = new Point(20, yPos);
-            lblCharge.Size = new Size(100, 20);
-
-            cboCharge = new ComboBox();
-            cboCharge.Location = new Point(130, yPos);
-            cboCharge.Size = new Size(330, 20);
-            cboCharge.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboCharge.SelectedIndexChanged += CboCharge_SelectedIndexChanged;
-            yPos += 35;
-
-            // Balance
-            lblBalance = new Label();
-            lblBalance.Text = LocalizationManager.GetString("balance") + ": €0.00";
-            lblBalance.Location = new Point(130, yPos);
-            lblBalance.Size = new Size(200, 20);
-            lblBalance.Font = new Font("Arial", 10, FontStyle.Bold);
-            yPos += 35;
-
-            // Amount
-            var lblAmount = new Label();
-            lblAmount.Text = LocalizationManager.GetString("payment_amount") + ":";
-            lblAmount.Location = new Point(20, yPos);
-            lblAmount.Size = new Size(100, 20);
-
-            numAmount = new NumericUpDown();
-            numAmount.Location = new Point(130, yPos);
-            numAmount.Size = new Size(120, 20);
-            numAmount.Maximum = 999999;
-            numAmount.DecimalPlaces = 2;
-            numAmount.ThousandsSeparator = true;
-            yPos += 35;
-
-            // Payment Date
-            var lblPaymentDate = new Label();
-            lblPaymentDate.Text = LocalizationManager.GetString("payment_date") + ":";
-            lblPaymentDate.Location = new Point(20, yPos);
-            lblPaymentDate.Size = new Size(100, 20);
-
-            dtpPaymentDate = new DateTimePicker();
-            dtpPaymentDate.Location = new Point(130, yPos);
-            dtpPaymentDate.Size = new Size(200, 20);
-            yPos += 35;
-
-            // Payment Method
-            var lblPaymentMethod = new Label();
-            lblPaymentMethod.Text = LocalizationManager.GetString("payment_method") + ":";
-            lblPaymentMethod.Location = new Point(20, yPos);
-            lblPaymentMethod.Size = new Size(100, 20);
-
-            cboPaymentMethod = new ComboBox();
-            cboPaymentMethod.Location = new Point(130, yPos);
-            cboPaymentMethod.Size = new Size(200, 20);
-            cboPaymentMethod.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboPaymentMethod.Items.AddRange(new string[] {
-                LocalizationManager.GetString("cash"),
-                LocalizationManager.GetString("bank_transfer"),
-                LocalizationManager.GetString("credit_card"),
-                LocalizationManager.GetString("check")
-            });
-            cboPaymentMethod.SelectedIndex = 0;
-            yPos += 35;
-
-            // Reference
-            var lblReference = new Label();
-            lblReference.Text = LocalizationManager.GetString("reference") + ":";
-            lblReference.Location = new Point(20, yPos);
-            lblReference.Size = new Size(100, 20);
-
-            txtReference = new TextBox();
-            txtReference.Location = new Point(130, yPos);
-            txtReference.Size = new Size(330, 20);
-            yPos += 35;
-
-            // Notes
-            var lblNotes = new Label();
-            lblNotes.Text = LocalizationManager.GetString("notes") + ":";
-            lblNotes.Location = new Point(20, yPos);
-            lblNotes.Size = new Size(100, 20);
-
-            txtNotes = new TextBox();
-            txtNotes.Location = new Point(130, yPos);
-            txtNotes.Size = new Size(330, 60);
-            txtNotes.Multiline = true;
-            yPos += 70;
-
-            // Buttons
-            btnSave = new Button();
-            btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(300, yPos);
-            btnSave.Size = new Size(80, 30);
-            btnSave.UseVisualStyleBackColor = true;
-            btnSave.Click += BtnSave_Click;
-
-            btnCancel = new Button();
-            btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(390, yPos);
-            btnCancel.Size = new Size(80, 30);
-            btnCancel.UseVisualStyleBackColor = true;
-            btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
-
-            this.Controls.AddRange(new Control[] {
-                lblClient, cboClient, lblCharge, cboCharge, lblBalance,
-                lblAmount, numAmount,
-                lblPaymentDate, dtpPaymentDate,
-                lblPaymentMethod, cboPaymentMethod,
-                lblReference, txtReference,
-                lblNotes, txtNotes,
-                btnSave, btnCancel
-            });
-        }
-
-        private void LoadData()
-        {
-            // Load clients
-            var clients = new ClientManager(dbManager).GetAllClients();
-            cboClient.DataSource = clients;
-            cboClient.DisplayMember = "DisplayName";
-            cboClient.ValueMember = "Id";
-
-            if (preselectedClientId.HasValue)
-            {
-                cboClient.SelectedValue = preselectedClientId.Value;
-            }
-        }
-
-        private void CboClient_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (cboClient.SelectedItem is Client client)
-            {
-                // Load outstanding charges for this client
-                var charges = new ChargeManager(dbManager).GetClientOutstandingCharges(client.Id);
-                cboCharge.DataSource = charges;
-                cboCharge.DisplayMember = "DisplayText";
-                cboCharge.ValueMember = "Id";
-            }
-        }
-
-        private void CboCharge_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            if (cboCharge.SelectedItem is Charge charge)
-            {
-                decimal balance = charge.Amount - charge.PaidAmount;
-                lblBalance.Text = LocalizationManager.GetString("balance") + $": €{balance:F2}";
-                numAmount.Value = balance;
-            }
-        }
-
-        private void BtnSave_Click(object sender, EventArgs e)
-        {
-            if (cboClient.SelectedItem == null)
-            {
-                MessageBox.Show("Please select a client.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (numAmount.Value <= 0)
-            {
-                MessageBox.Show("Payment amount must be greater than 0.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            try
-            {
-                var client = (Client)cboClient.SelectedItem;
-                var charge = cboCharge.SelectedItem as Charge;
-
-                var payment = new Payment
-                {
-                    ClientId = client.Id,
-                    ChargeId = charge?.Id,
-                    Amount = numAmount.Value,
-                    PaymentDate = dtpPaymentDate.Value.Date,
-                    PaymentMethod = cboPaymentMethod.Text,
-                    Reference = txtReference.Text.Trim(),
-                    Notes = txtNotes.Text.Trim(),
-                    CreatedBy = SessionManager.CurrentUser
-                };
-
-                new PaymentManager(dbManager).CreatePayment(payment);
-                LogManager.LogInfo($"Payment recorded for client: {client.DisplayName}, Amount: €{payment.Amount:F2}");
-
-                MessageBox.Show("Payment recorded successfully!",
-                    LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-
-                this.DialogResult = DialogResult.OK;
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error recording payment", ex);
-                MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-    }
-
-    // ===================== CHANGE PASSWORD FORM =====================
-    public partial class ChangePasswordForm : Form
-    {
-        private DatabaseManager dbManager;
-        private TextBox txtOldPassword, txtNewPassword, txtConfirmPassword;
-        private Button btnSave, btnCancel;
-        private bool isFirstLogin;
-
-        public ChangePasswordForm(DatabaseManager dbManager, bool firstLogin = false)
-        {
-            this.dbManager = dbManager;
-            this.isFirstLogin = firstLogin;
+            this.payment = payment;
             InitializeComponent();
         }
 
         private void InitializeComponent()
         {
-            this.Size = new Size(400, 250);
+            this.Size = new Size(450, 400);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.Text = LocalizationManager.GetString("change_password");
-
-            int yPos = 20;
-
-            // Old Password
-            var lblOldPassword = new Label();
-            lblOldPassword.Text = LocalizationManager.GetString("old_password") + ":";
-            lblOldPassword.Location = new Point(20, yPos);
-            lblOldPassword.Size = new Size(120, 20);
-
-            txtOldPassword = new TextBox();
-            txtOldPassword.Location = new Point(150, yPos);
-            txtOldPassword.Size = new Size(200, 20);
-            txtOldPassword.UseSystemPasswordChar = true;
-            yPos += 35;
-
-            // New Password
-            var lblNewPassword = new Label();
-            lblNewPassword.Text = LocalizationManager.GetString("new_password") + ":";
-            lblNewPassword.Location = new Point(20, yPos);
-            lblNewPassword.Size = new Size(120, 20);
-
-            txtNewPassword = new TextBox();
-            txtNewPassword.Location = new Point(150, yPos);
-            txtNewPassword.Size = new Size(200, 20);
-            txtNewPassword.UseSystemPasswordChar = true;
-            yPos += 35;
-
-            // Confirm Password
-            var lblConfirmPassword = new Label();
-            lblConfirmPassword.Text = LocalizationManager.GetString("confirm_password") + ":";
-            lblConfirmPassword.Location = new Point(20, yPos);
-            lblConfirmPassword.Size = new Size(120, 20);
-
-            txtConfirmPassword = new TextBox();
-            txtConfirmPassword.Location = new Point(150, yPos);
-            txtConfirmPassword.Size = new Size(200, 20);
-            txtConfirmPassword.UseSystemPasswordChar = true;
-            yPos += 35;
-
-            // Password requirements label
-            var lblRequirements = new Label();
-            lblRequirements.Text = LocalizationManager.GetString("password_requirements");
-            lblRequirements.Location = new Point(20, yPos);
-            lblRequirements.Size = new Size(350, 20);
-            lblRequirements.Font = new Font("Arial", 8, FontStyle.Italic);
-            yPos += 30;
-
-            // Buttons
-            btnSave = new Button();
-            btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(190, yPos);
-            btnSave.Size = new Size(80, 30);
-            btnSave.UseVisualStyleBackColor = true;
-            btnSave.Click += BtnSave_Click;
-
-            btnCancel = new Button();
-            btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(280, yPos);
-            btnCancel.Size = new Size(80, 30);
-            btnCancel.UseVisualStyleBackColor = true;
-            btnCancel.Click += (s, e) => {
-                if (isFirstLogin)
-                {
-                    MessageBox.Show("You must change your password on first login.",
-                        LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                }
-                else
-                {
-                    this.Close();
-                }
-            };
-
-            this.Controls.AddRange(new Control[] {
-                lblOldPassword, txtOldPassword,
-                lblNewPassword, txtNewPassword,
-                lblConfirmPassword, txtConfirmPassword,
-                lblRequirements,
-                btnSave, btnCancel
-            });
-        }
-
-        private void BtnSave_Click(object sender, EventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(txtOldPassword.Text) ||
-                string.IsNullOrWhiteSpace(txtNewPassword.Text) ||
-                string.IsNullOrWhiteSpace(txtConfirmPassword.Text))
-            {
-                MessageBox.Show("Please fill all fields.",
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (txtNewPassword.Text != txtConfirmPassword.Text)
-            {
-                MessageBox.Show(LocalizationManager.GetString("passwords_not_match"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            if (!ValidationHelper.IsValidPassword(txtNewPassword.Text))
-            {
-                MessageBox.Show(LocalizationManager.GetString("password_requirements"),
-                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                return;
-            }
-
-            try
-            {
-                var userManager = new UserManager(dbManager);
-                if (userManager.ChangePassword(SessionManager.CurrentUser, txtOldPassword.Text, txtNewPassword.Text))
-                {
-                    LogManager.LogInfo($"Password changed for user: {SessionManager.CurrentUser}");
-                    MessageBox.Show(LocalizationManager.GetString("password_changed"),
-                        LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    this.Close();
-                }
-                else
-                {
-                    MessageBox.Show(LocalizationManager.GetString("invalid_old_password"),
-                        LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error changing password", ex);
-                MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
-                    MessageBoxButtons.OK, MessageBoxIcon.Error);
-            }
-        }
-    }
-}// This code is part of the BillPilot application, which is a billing and invoicing system.
