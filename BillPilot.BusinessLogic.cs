@@ -153,7 +153,7 @@ namespace BillPilot
                             var unpaidPayments = Convert.ToInt32(checkCmd.ExecuteScalar());
                             if (unpaidPayments > 0)
                             {
-                                throw new InvalidOperationException($"Cannot delete client with {unpaidPayments} unpaid payments.");
+                                throw new InvalidOperationException($"Δεν μπορείτε να διαγράψετε πελάτη με {unpaidPayments} απλήρωτες πληρωμές.");
                             }
                         }
 
@@ -397,7 +397,7 @@ namespace BillPilot
                             var activeServices = Convert.ToInt32(checkCmd.ExecuteScalar());
                             if (activeServices > 0)
                             {
-                                throw new InvalidOperationException($"Cannot delete service with {activeServices} active client subscriptions.");
+                                throw new InvalidOperationException($"Δεν μπορείτε να διαγράψετε υπηρεσία με {activeServices} ενεργές συνδρομές πελατών.");
                             }
                         }
 
@@ -534,8 +534,105 @@ namespace BillPilot
                         {
                             var payment = MapPaymentFromReader(reader);
                             // Add extra properties for delayed payments view
-                            payment.Notes = $"Phone: {reader["Phone"]}, Email: {reader["Email"]}";
+                            payment.Notes = $"Τηλ: {reader["Phone"]}, Email: {reader["Email"]}";
                             payments.Add(payment);
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public List<Payment> GetPaidPayments(DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                string query = @"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = 1";
+
+                if (fromDate.HasValue && toDate.HasValue)
+                {
+                    query += " AND p.PaidDate BETWEEN @fromDate AND @toDate";
+                }
+
+                query += " ORDER BY p.PaidDate DESC";
+
+                using (var cmd = new SQLiteCommand(query, connection))
+                {
+                    if (fromDate.HasValue && toDate.HasValue)
+                    {
+                        cmd.Parameters.AddWithValue("@fromDate", fromDate.Value.Date);
+                        cmd.Parameters.AddWithValue("@toDate", toDate.Value.Date);
+                    }
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            payments.Add(MapPaymentFromReader(reader));
+                        }
+                    }
+                }
+            }
+            return payments;
+        }
+
+        public List<Payment> SearchPayments(string searchTerm, bool isPaid, DateTime? fromDate = null, DateTime? toDate = null)
+        {
+            var payments = new List<Payment>();
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                string query = @"
+                    SELECT p.*, c.FirstName || ' ' || c.LastName as ClientName, s.Name as ServiceName
+                    FROM Payments p
+                    INNER JOIN Clients c ON p.ClientId = c.Id
+                    LEFT JOIN Services s ON p.ServiceId = s.Id
+                    WHERE p.IsPaid = @isPaid";
+
+                if (!string.IsNullOrEmpty(searchTerm))
+                {
+                    query += @" AND (c.FirstName LIKE @search OR c.LastName LIKE @search 
+                               OR c.BusinessName LIKE @search OR s.Name LIKE @search
+                               OR p.Reference LIKE @search OR p.PaymentMethod LIKE @search)";
+                }
+
+                if (fromDate.HasValue && toDate.HasValue)
+                {
+                    if (isPaid)
+                        query += " AND p.PaidDate BETWEEN @fromDate AND @toDate";
+                    else
+                        query += " AND p.DueDate BETWEEN @fromDate AND @toDate";
+                }
+
+                query += isPaid ? " ORDER BY p.PaidDate DESC" : " ORDER BY p.DueDate";
+
+                using (var cmd = new SQLiteCommand(query, connection))
+                {
+                    cmd.Parameters.AddWithValue("@isPaid", isPaid);
+
+                    if (!string.IsNullOrEmpty(searchTerm))
+                    {
+                        cmd.Parameters.AddWithValue("@search", $"%{searchTerm}%");
+                    }
+
+                    if (fromDate.HasValue && toDate.HasValue)
+                    {
+                        cmd.Parameters.AddWithValue("@fromDate", fromDate.Value.Date);
+                        cmd.Parameters.AddWithValue("@toDate", toDate.Value.Date);
+                    }
+
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            payments.Add(MapPaymentFromReader(reader));
                         }
                     }
                 }
@@ -638,7 +735,7 @@ namespace BillPilot
                         }
 
                         if (payment == null)
-                            throw new Exception("Payment not found");
+                            throw new Exception("Η πληρωμή δεν βρέθηκε");
 
                         // Update payment as paid
                         using (var updateCmd = new SQLiteCommand(@"
@@ -724,6 +821,37 @@ namespace BillPilot
             }
         }
 
+        public void UpdatePayment(Payment payment)
+        {
+            using (var connection = dbManager.GetConnection())
+            {
+                connection.Open();
+                using (var cmd = new SQLiteCommand(@"
+                    UPDATE Payments 
+                    SET DueDate = @dueDate,
+                        Amount = @amount,
+                        IsPaid = @isPaid,
+                        PaidDate = @paidDate,
+                        PaymentMethod = @paymentMethod,
+                        Reference = @reference,
+                        Notes = @notes,
+                        IsOverdue = CASE WHEN @isPaid = 1 THEN 0 ELSE IsOverdue END
+                    WHERE Id = @id", connection))
+                {
+                    cmd.Parameters.AddWithValue("@id", payment.Id);
+                    cmd.Parameters.AddWithValue("@dueDate", payment.DueDate.Date);
+                    cmd.Parameters.AddWithValue("@amount", payment.Amount);
+                    cmd.Parameters.AddWithValue("@isPaid", payment.IsPaid);
+                    cmd.Parameters.AddWithValue("@paidDate", payment.IsPaid && payment.PaidDate.HasValue ? (object)payment.PaidDate.Value : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@paymentMethod", payment.IsPaid && !string.IsNullOrEmpty(payment.PaymentMethod) ? (object)payment.PaymentMethod : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@reference", payment.IsPaid && !string.IsNullOrEmpty(payment.Reference) ? (object)payment.Reference : DBNull.Value);
+                    cmd.Parameters.AddWithValue("@notes", payment.Notes ?? "");
+
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
         public void CreatePaymentForClientService(int clientServiceId)
         {
             using (var connection = dbManager.GetConnection())
@@ -770,7 +898,7 @@ namespace BillPilot
                 // Use existing connection and transaction
                 using (var cmd = new SQLiteCommand(@"
                     INSERT INTO Payments (ClientId, ServiceId, ClientServiceId, PaymentType, DueDate, Amount, IsPaid, IsOverdue, CreatedBy)
-                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)", 
+                    VALUES (@clientId, @serviceId, @clientServiceId, @paymentType, @dueDate, @amount, 0, 0, @createdBy)",
                     existingConnection, existingTransaction))
                 {
                     cmd.Parameters.AddWithValue("@clientId", payment.ClientId);
@@ -813,9 +941,11 @@ namespace BillPilot
             switch (period?.ToLower())
             {
                 case "weekly":
+                case "εβδομαδιαία":
                     return currentDate.AddDays(7);
 
                 case "monthly":
+                case "μηνιαία":
                     var nextMonth = currentDate.AddMonths(1);
                     if (chargeDay.HasValue)
                     {
@@ -828,6 +958,7 @@ namespace BillPilot
                     return nextMonth;
 
                 case "quarterly":
+                case "τριμηνιαία":
                     var nextQuarter = currentDate.AddMonths(3);
                     if (chargeDay.HasValue)
                     {
@@ -840,6 +971,7 @@ namespace BillPilot
                     return nextQuarter;
 
                 case "yearly":
+                case "ετήσια":
                     var nextYear = currentDate.AddYears(1);
                     if (chargeDay.HasValue && chargeDay.Value <= 365)
                     {
@@ -1123,6 +1255,7 @@ namespace BillPilot
                 switch (clientService.Period.ToLower())
                 {
                     case "monthly":
+                    case "μηνιαία":
                         var day = clientService.ChargeDay.Value;
                         if (day > DateTime.DaysInMonth(baseDate.Year, baseDate.Month))
                             day = DateTime.DaysInMonth(baseDate.Year, baseDate.Month);
@@ -1133,6 +1266,7 @@ namespace BillPilot
                         return firstDate;
 
                     case "yearly":
+                    case "ετήσια":
                         var yearDate = new DateTime(baseDate.Year, 1, 1).AddDays(clientService.ChargeDay.Value - 1);
                         if (yearDate < baseDate)
                             yearDate = yearDate.AddYears(1);
@@ -1371,7 +1505,7 @@ namespace BillPilot
                             items.Add(new RevenueReportItem
                             {
                                 ClientName = reader["ClientName"].ToString(),
-                                ServiceName = reader["ServiceName"]?.ToString() ?? "General Payment",
+                                ServiceName = reader["ServiceName"]?.ToString() ?? "Γενική Πληρωμή",
                                 PaymentDate = Convert.ToDateTime(reader["PaidDate"]),
                                 Amount = Convert.ToDecimal(reader["Amount"]),
                                 PaymentMethod = reader["PaymentMethod"]?.ToString() ?? "",
@@ -1406,7 +1540,7 @@ namespace BillPilot
                             items.Add(new OutstandingReportItem
                             {
                                 ClientName = reader["ClientName"].ToString(),
-                                ServiceName = reader["ServiceName"]?.ToString() ?? "Payment",
+                                ServiceName = reader["ServiceName"]?.ToString() ?? "Πληρωμή",
                                 DueDate = Convert.ToDateTime(reader["DueDate"]),
                                 Amount = Convert.ToDecimal(reader["Amount"]),
                                 DaysOverdue = Convert.ToInt32(reader["DaysOverdue"])

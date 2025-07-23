@@ -381,15 +381,15 @@ namespace BillPilot
             switch (validationType.ToLower())
             {
                 case "required":
-                    return string.IsNullOrWhiteSpace(value) ? $"{fieldName} is required." : null;
+                    return string.IsNullOrWhiteSpace(value) ? $"{fieldName} είναι υποχρεωτικό." : null;
                 case "email":
-                    return !IsValidEmail(value) ? $"Please enter a valid email address." : null;
+                    return !IsValidEmail(value) ? $"Παρακαλώ εισάγετε έγκυρη διεύθυνση email." : null;
                 case "phone":
-                    return !IsValidPhone(value) ? $"Please enter a valid phone number." : null;
+                    return !IsValidPhone(value) ? $"Παρακαλώ εισάγετε έγκυρο αριθμό τηλεφώνου." : null;
                 case "password":
-                    return !IsValidPassword(value) ? $"Password must be at least 8 characters long." : null;
+                    return !IsValidPassword(value) ? $"Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες." : null;
                 case "vat":
-                    return !IsValidVATNumber(value) ? $"Please enter a valid VAT number." : null;
+                    return !IsValidVATNumber(value) ? $"Παρακαλώ εισάγετε έγκυρο ΑΦΜ." : null;
                 default:
                     return null;
             }
@@ -438,8 +438,7 @@ namespace BillPilot
     // ===================== LOCALIZATION MANAGER =====================
     public static class LocalizationManager
     {
-        private static Dictionary<string, Dictionary<string, string>> translations;
-        private static string currentLanguage = "gr"; // Greek as default
+        private static Dictionary<string, string> translations;
 
         static LocalizationManager()
         {
@@ -448,175 +447,8 @@ namespace BillPilot
 
         private static void InitializeTranslations()
         {
-            translations = new Dictionary<string, Dictionary<string, string>>();
-
-            // English translations
-            translations["en"] = new Dictionary<string, string>
-            {
-                {"app_title", "BillPilot - Business Management System"},
-                {"login_title", "BillPilot Login"},
-                {"username", "Username"},
-                {"password", "Password"},
-                {"login", "Login"},
-                {"logout", "Logout"},
-                {"login_failed", "Invalid username or password."},
-                {"session_expired", "Session expired. Please login again."},
-                {"dashboard", "Dashboard"},
-                {"clients", "Clients"},
-                {"services", "Services"},
-                {"payments", "Payments"},
-                {"upcoming_payments", "Upcoming Payments"},
-                {"delayed_payments", "Delayed Payments"},
-                {"reports", "Reports"},
-                {"settings", "Settings"},
-                {"language", "Language"},
-                {"backup", "Backup Database"},
-                {"restore", "Restore Database"},
-                {"exit", "Exit"},
-                {"add", "Add"},
-                {"edit", "Edit"},
-                {"delete", "Delete"},
-                {"save", "Save"},
-                {"cancel", "Cancel"},
-                {"refresh", "Refresh"},
-                {"search", "Search"},
-                {"export", "Export"},
-                {"import", "Import"},
-                {"print", "Print"},
-                {"yes", "Yes"},
-                {"no", "No"},
-                {"ok", "OK"},
-                {"error", "Error"},
-                {"warning", "Warning"},
-                {"info", "Information"},
-                {"success", "Success"},
-                {"confirm", "Confirm"},
-                {"close", "Close"},
-                {"select", "Select"},
-                {"all", "All"},
-                {"none", "None"},
-                {"from", "From"},
-                {"to", "To"},
-                {"date", "Date"},
-                {"time", "Time"},
-                {"total", "Total"},
-                {"amount", "Amount"},
-                {"balance", "Balance"},
-                {"paid", "Paid"},
-                {"unpaid", "Unpaid"},
-                {"overdue", "Overdue"},
-                {"pending", "Pending"},
-                {"active", "Active"},
-                {"inactive", "Inactive"},
-                {"enabled", "Enabled"},
-                {"disabled", "Disabled"},
-                {"first_name", "First Name"},
-                {"last_name", "Last Name"},
-                {"full_name", "Full Name"},
-                {"business_name", "Business Name"},
-                {"vat_number", "VAT Number"},
-                {"email", "Email"},
-                {"phone", "Phone"},
-                {"address", "Address"},
-                {"city", "City"},
-                {"postal_code", "Postal Code"},
-                {"country", "Country"},
-                {"notes", "Notes"},
-                {"description", "Description"},
-                {"category", "Category"},
-                {"tags", "Tags"},
-                {"credit_limit", "Credit Limit"},
-                {"payment_terms", "Payment Terms (Days)"},
-                {"service_name", "Service Name"},
-                {"base_price", "Base Price"},
-                {"custom_price", "Custom Price"},
-                {"service_type", "Service Type"},
-                {"one_off", "One-off"},
-                {"periodic", "Periodic"},
-                {"period", "Period"},
-                {"weekly", "Weekly"},
-                {"monthly", "Monthly"},
-                {"quarterly", "Quarterly"},
-                {"yearly", "Yearly"},
-                {"due_date", "Due Date"},
-                {"payment_date", "Payment Date"},
-                {"payment_method", "Payment Method"},
-                {"cash", "Cash"},
-                {"bank_transfer", "Bank Transfer"},
-                {"credit_card", "Credit Card"},
-                {"check", "Check"},
-                {"reference", "Reference"},
-                {"contact_history", "Contact History"},
-                {"contact_type", "Contact Type"},
-                {"contact_date", "Contact Date"},
-                {"days_overdue", "Days Overdue"},
-                {"total_clients", "Total Clients"},
-                {"total_services", "Total Services"},
-                {"total_revenue", "Total Revenue"},
-                {"total_outstanding", "Total Outstanding"},
-                {"quick_actions", "Quick Actions"},
-                {"recent_activity", "Recent Activity"},
-                {"add_client", "Add Client"},
-                {"edit_client", "Edit Client"},
-                {"delete_client", "Delete Client"},
-                {"add_service", "Add Service"},
-                {"edit_service", "Edit Service"},
-                {"delete_service", "Delete Service"},
-                {"mark_as_paid", "Mark as Paid"},
-                {"generate_report", "Generate Report"},
-                {"revenue_report", "Revenue Report"},
-                {"outstanding_report", "Outstanding Report"},
-                {"service_performance", "Service Performance"},
-                {"client_profitability", "Client Profitability"},
-                {"export_to_excel", "Export to Excel"},
-                {"export_to_pdf", "Export to PDF"},
-                {"from_date", "From Date"},
-                {"to_date", "To Date"},
-                {"change_password", "Change Password"},
-                {"old_password", "Old Password"},
-                {"new_password", "New Password"},
-                {"confirm_password", "Confirm Password"},
-                {"password_changed", "Password changed successfully"},
-                {"passwords_not_match", "Passwords do not match"},
-                {"invalid_old_password", "Invalid old password"},
-                {"first_login_message", "Welcome! For security, please change your password."},
-                {"password_requirements", "Password must be at least 8 characters long."},
-                {"required_field", "This field is required."},
-                {"invalid_email", "Please enter a valid email address."},
-                {"invalid_phone", "Please enter a valid phone number."},
-                {"operation_completed", "Operation completed successfully."},
-                {"confirm_delete", "Are you sure you want to delete this item?"},
-                {"no_selection", "Please select an item first."},
-                {"no_data", "No data available."},
-                {"loading", "Loading..."},
-                {"processing", "Processing..."},
-                {"backup_success", "Database backed up successfully."},
-                {"restore_success", "Database restored successfully."},
-                {"export_success", "Data exported successfully."},
-                {"import_success", "Data imported successfully."},
-                {"view_details", "View Details"},
-                {"client_services", "Client Services"},
-                {"manage_services", "Manage Services"},
-                {"last_paid_date", "Last Paid Date"},
-                {"next_payment_date", "Next Payment Date"},
-                {"charge_day", "Charge Day"},
-                {"start_date", "Start Date"},
-                {"end_date", "End Date"},
-                {"welcome", "Welcome to BillPilot"},
-                {"subtitle", "Your Complete Business Management Solution"},
-                {"delayed_payments_notice", "You have {0} delayed payments!"},
-                {"payment_amount", "Payment Amount"},
-                {"client", "Client"},
-                {"process_payment", "Process Payment"},
-                {"edit_payment", "Edit Payment"},
-                {"search_by", "Search by"},
-                {"all_fields", "All Fields"},
-                {"payment_for_months", "Payment for {0} months"},
-                {"payment_periods", "Payment Periods"}
-            };
-
-            // Greek translations
-            translations["gr"] = new Dictionary<string, string>
+            // Greek translations only
+            translations = new Dictionary<string, string>
             {
                 {"app_title", "BillPilot - Σύστημα Διαχείρισης Επιχείρησης"},
                 {"login_title", "Σύνδεση στο BillPilot"},
@@ -632,6 +464,7 @@ namespace BillPilot
                 {"payments", "Πληρωμές"},
                 {"upcoming_payments", "Επερχόμενες Πληρωμές"},
                 {"delayed_payments", "Καθυστερημένες Πληρωμές"},
+                {"paid_payments", "Πληρωμένες Πληρωμές"},
                 {"reports", "Αναφορές"},
                 {"settings", "Ρυθμίσεις"},
                 {"language", "Γλώσσα"},
@@ -777,40 +610,24 @@ namespace BillPilot
                 {"search_by", "Αναζήτηση κατά"},
                 {"all_fields", "Όλα τα Πεδία"},
                 {"payment_for_months", "Πληρωμή για {0} μήνες"},
-                {"payment_periods", "Περίοδοι Πληρωμής"}
+                {"payment_periods", "Περίοδοι Πληρωμής"},
+                {"payment_status", "Κατάσταση Πληρωμής"},
+                {"is_paid", "Πληρωμένο"},
+                {"mark_paid", "Σήμανση ως Πληρωμένο"},
+                {"unmark_paid", "Αναίρεση Πληρωμής"}
             };
         }
 
         public static string GetString(string key)
         {
-            if (translations.ContainsKey(currentLanguage) &&
-                translations[currentLanguage].ContainsKey(key))
+            if (translations.ContainsKey(key))
             {
-                return translations[currentLanguage][key];
-            }
-
-            // Fallback to English
-            if (translations["en"].ContainsKey(key))
-            {
-                return translations["en"][key];
+                return translations[key];
             }
 
             // Return key if not found
             return key;
         }
-
-        public static void SetLanguage(string language)
-        {
-            if (translations.ContainsKey(language))
-            {
-                currentLanguage = language;
-                LogManager.LogInfo($"Language changed to: {language}");
-            }
-        }
-
-        public static string CurrentLanguage => currentLanguage;
-
-        public static string[] AvailableLanguages => new string[] { "en", "gr" };
     }
 
     // ===================== SESSION MANAGER =====================

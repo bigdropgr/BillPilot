@@ -20,10 +20,6 @@ namespace BillPilot
 
             LogManager.LogInfo("BillPilot application started");
 
-            // Load language preference before showing login
-            string savedLanguage = MainForm.LoadLanguagePreference();
-            LocalizationManager.SetLanguage(savedLanguage);
-
             try
             {
                 // Show login form first
@@ -37,8 +33,8 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Fatal application error", ex);
-                MessageBox.Show("A fatal error occurred. Please check the log file for details.",
-                    "Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Προέκυψε σοβαρό σφάλμα. Παρακαλώ ελέγξτε το αρχείο καταγραφής για λεπτομέρειες.",
+                    "Σφάλμα", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
             finally
             {
@@ -54,8 +50,6 @@ namespace BillPilot
         private TextBox txtPassword;
         private Button btnLogin;
         private Button btnCancel;
-        private ComboBox cboLanguage;
-        private Label lblLanguage;
         private DatabaseManager dbManager;
 
         public LoginForm()
@@ -66,7 +60,7 @@ namespace BillPilot
 
         private void InitializeComponent()
         {
-            this.Size = new Size(400, 250);
+            this.Size = new Size(400, 220);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -107,23 +101,9 @@ namespace BillPilot
             this.txtPassword.Size = new Size(230, 20);
             this.txtPassword.UseSystemPasswordChar = true;
 
-            // Language
-            this.lblLanguage = new Label();
-            this.lblLanguage.Text = LocalizationManager.GetString("language");
-            this.lblLanguage.Location = new Point(20, 145);
-            this.lblLanguage.Size = new Size(100, 20);
-
-            this.cboLanguage = new ComboBox();
-            this.cboLanguage.Location = new Point(130, 143);
-            this.cboLanguage.Size = new Size(100, 20);
-            this.cboLanguage.DropDownStyle = ComboBoxStyle.DropDownList;
-            this.cboLanguage.Items.AddRange(new string[] { "Ελληνικά", "English" });
-            this.cboLanguage.SelectedIndex = LocalizationManager.CurrentLanguage == "gr" ? 0 : 1;
-            this.cboLanguage.SelectedIndexChanged += CboLanguage_SelectedIndexChanged;
-
             // Login Button
             this.btnLogin = new Button();
-            this.btnLogin.Location = new Point(195, 180);
+            this.btnLogin.Location = new Point(195, 150);
             this.btnLogin.Size = new Size(80, 30);
             this.btnLogin.Text = LocalizationManager.GetString("login");
             this.btnLogin.UseVisualStyleBackColor = true;
@@ -131,7 +111,7 @@ namespace BillPilot
 
             // Cancel Button
             this.btnCancel = new Button();
-            this.btnCancel.Location = new Point(280, 180);
+            this.btnCancel.Location = new Point(280, 150);
             this.btnCancel.Size = new Size(80, 30);
             this.btnCancel.Text = LocalizationManager.GetString("cancel");
             this.btnCancel.UseVisualStyleBackColor = true;
@@ -141,7 +121,6 @@ namespace BillPilot
             this.Controls.AddRange(new Control[] {
                 logoPanel, lblUsername, this.txtUsername,
                 lblPassword, this.txtPassword,
-                lblLanguage, this.cboLanguage,
                 this.btnLogin, this.btnCancel
             });
 
@@ -183,27 +162,11 @@ namespace BillPilot
             pictureBox.Image = bitmap;
         }
 
-        private void CboLanguage_SelectedIndexChanged(object sender, EventArgs e)
-        {
-            LocalizationManager.SetLanguage(cboLanguage.SelectedIndex == 0 ? "gr" : "en");
-            UpdateUILanguage();
-        }
-
-        private void UpdateUILanguage()
-        {
-            this.Text = LocalizationManager.GetString("login_title");
-            this.Controls.OfType<Label>().FirstOrDefault(l => l.Top == 85).Text = LocalizationManager.GetString("username");
-            this.Controls.OfType<Label>().FirstOrDefault(l => l.Top == 115).Text = LocalizationManager.GetString("password");
-            this.lblLanguage.Text = LocalizationManager.GetString("language");
-            this.btnLogin.Text = LocalizationManager.GetString("login");
-            this.btnCancel.Text = LocalizationManager.GetString("cancel");
-        }
-
         private void BtnLogin_Click(object sender, EventArgs e)
         {
             if (string.IsNullOrWhiteSpace(txtUsername.Text) || string.IsNullOrWhiteSpace(txtPassword.Text))
             {
-                MessageBox.Show("Please enter username and password.",
+                MessageBox.Show("Παρακαλώ εισάγετε όνομα χρήστη και κωδικό.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
@@ -239,7 +202,7 @@ namespace BillPilot
         private PaymentManager paymentManager;
         private MenuStrip menuStrip;
         private TabControl mainTabControl;
-        private TabPage dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, reportsTab;
+        private TabPage dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, paidTab, reportsTab;
         private PictureBox logoPictureBox;
         private Timer refreshTimer;
         private StatusStrip statusStrip;
@@ -351,10 +314,11 @@ namespace BillPilot
             CreateServicesTab();
             CreateUpcomingPaymentsTab();
             CreateDelayedPaymentsTab();
+            CreatePaidPaymentsTab();
             CreateReportsTab();
 
             mainTabControl.TabPages.AddRange(new TabPage[] {
-                dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, reportsTab
+                dashboardTab, clientsTab, servicesTab, upcomingTab, delayedTab, paidTab, reportsTab
             });
 
             // Create status bar
@@ -385,7 +349,7 @@ namespace BillPilot
 
             var logoutMenu = new ToolStripMenuItem(LocalizationManager.GetString("logout"));
             logoutMenu.Click += (s, e) => {
-                var result = MessageBox.Show("Are you sure you want to logout?",
+                var result = MessageBox.Show("Είστε σίγουροι ότι θέλετε να αποσυνδεθείτε;",
                     LocalizationManager.GetString("confirm"),
                     MessageBoxButtons.YesNo,
                     MessageBoxIcon.Question);
@@ -404,27 +368,16 @@ namespace BillPilot
                 logoutMenu, new ToolStripSeparator(), exitMenu
             });
 
-            // Language menu
-            var languageMenu = new ToolStripMenuItem(LocalizationManager.GetString("language"));
-            var greekMenu = new ToolStripMenuItem("Ελληνικά");
-            greekMenu.Click += (s, e) => ChangeLanguage("gr");
-            var englishMenu = new ToolStripMenuItem("English");
-            englishMenu.Click += (s, e) => ChangeLanguage("en");
-
-            languageMenu.DropDownItems.AddRange(new ToolStripItem[] {
-                greekMenu, englishMenu
-            });
-
             // Help menu
-            var helpMenu = new ToolStripMenuItem("Help");
-            var aboutMenu = new ToolStripMenuItem("About BillPilot");
+            var helpMenu = new ToolStripMenuItem("Βοήθεια");
+            var aboutMenu = new ToolStripMenuItem("Σχετικά με το BillPilot");
             aboutMenu.Click += (s, e) => MessageBox.Show(
-                "BillPilot v1.0\n\nPortable Business Management System\n\n© 2024 BillPilot Software",
-                "About", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                "BillPilot v1.0\n\nΦορητό Σύστημα Διαχείρισης Επιχείρησης\n\n© 2024 BillPilot Software",
+                "Σχετικά", MessageBoxButtons.OK, MessageBoxIcon.Information);
             helpMenu.DropDownItems.Add(aboutMenu);
 
             menuStrip.Items.AddRange(new ToolStripItem[] {
-                fileMenu, languageMenu, helpMenu
+                fileMenu, helpMenu
             });
 
             this.Controls.Add(menuStrip);
@@ -435,12 +388,12 @@ namespace BillPilot
             statusStrip = new StatusStrip();
 
             statusLabel = new ToolStripStatusLabel();
-            statusLabel.Text = "Ready";
+            statusLabel.Text = "Έτοιμο";
             statusLabel.Spring = true;
             statusLabel.TextAlign = ContentAlignment.MiddleLeft;
 
             userLabel = new ToolStripStatusLabel();
-            userLabel.Text = $"User: {SessionManager.CurrentUser}";
+            userLabel.Text = $"Χρήστης: {SessionManager.CurrentUser}";
             userLabel.BorderSides = ToolStripStatusLabelBorderSides.Left;
 
             var dateLabel = new ToolStripStatusLabel();
@@ -591,8 +544,16 @@ namespace BillPilot
             btnViewDelayed.Font = new Font("Arial", 10);
             btnViewDelayed.Click += (s, e) => mainTabControl.SelectedTab = delayedTab;
 
+            var btnViewPaid = new Button();
+            btnViewPaid.Text = LocalizationManager.GetString("paid_payments");
+            btnViewPaid.Location = new Point(20, 200);
+            btnViewPaid.Size = new Size(520, 40);
+            btnViewPaid.UseVisualStyleBackColor = true;
+            btnViewPaid.Font = new Font("Arial", 10);
+            btnViewPaid.Click += (s, e) => mainTabControl.SelectedTab = paidTab;
+
             panel.Controls.AddRange(new Control[] {
-                btnAddClient, btnAddService, btnGenerateReport, btnViewUpcoming, btnViewDelayed
+                btnAddClient, btnAddService, btnGenerateReport, btnViewUpcoming, btnViewDelayed, btnViewPaid
             });
 
             return panel;
@@ -707,7 +668,7 @@ namespace BillPilot
 
             e.DrawBackground();
             var item = ((ListBox)sender).Items[e.Index].ToString();
-            var isPaid = item.Contains("Paid:");
+            var isPaid = item.Contains("Πληρώθηκε:");
             var brush = isPaid ? Brushes.Green : Brushes.DarkRed;
 
             e.Graphics.DrawString(item, e.Font, brush, e.Bounds.Left + 5, e.Bounds.Top + 8);
@@ -726,24 +687,24 @@ namespace BillPilot
                 {
                     if (payment.IsPaid)
                     {
-                        listBox.Items.Add($"Paid: {payment.ClientName} - €{payment.Amount:F2} ({payment.PaidDate.Value:dd/MM/yyyy})");
+                        listBox.Items.Add($"Πληρώθηκε: {payment.ClientName} - €{payment.Amount:F2} ({payment.PaidDate.Value:dd/MM/yyyy})");
                     }
                     else
                     {
-                        listBox.Items.Add($"Due: {payment.ClientName} - €{payment.Amount:F2} ({payment.DueDate:dd/MM/yyyy})");
+                        listBox.Items.Add($"Οφειλή: {payment.ClientName} - €{payment.Amount:F2} ({payment.DueDate:dd/MM/yyyy})");
                     }
                 }
 
                 if (listBox.Items.Count == 0)
                 {
-                    listBox.Items.Add("No recent activity to display.");
+                    listBox.Items.Add("Δεν υπάρχει πρόσφατη δραστηριότητα.");
                 }
             }
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading recent activities", ex);
                 listBox.Items.Clear();
-                listBox.Items.Add("Error loading activities.");
+                listBox.Items.Add("Σφάλμα φόρτωσης δραστηριοτήτων.");
             }
         }
 
@@ -783,6 +744,15 @@ namespace BillPilot
             delayedTab.Controls.Add(delayedControl);
         }
 
+        private void CreatePaidPaymentsTab()
+        {
+            paidTab = new TabPage(LocalizationManager.GetString("paid_payments"));
+
+            var paidControl = new PaidPaymentsControl(dbManager);
+            paidControl.Dock = DockStyle.Fill;
+            paidTab.Controls.Add(paidControl);
+        }
+
         private void CreateReportsTab()
         {
             reportsTab = new TabPage(LocalizationManager.GetString("reports"));
@@ -802,25 +772,25 @@ namespace BillPilot
 
             try
             {
-                statusLabel.Text = "Loading dashboard data...";
+                statusLabel.Text = "Φόρτωση δεδομένων...";
 
                 // Update client count
                 var clients = clientManager.GetAllClients();
                 if (clients != null)
-                    UpdateStatCard("total_clients", clients.Count.ToString());
+                    UpdateStatCard("ΣύνολοΠελατών", clients.Count.ToString());
 
                 // Update services count
                 var services = serviceManager.GetAllServices();
                 if (services != null)
-                    UpdateStatCard("total_services", services.Count.ToString());
+                    UpdateStatCard("ΣύνολοΥπηρεσιών", services.Count.ToString());
 
                 // Update revenue
                 var totalRevenue = paymentManager.GetTotalRevenue();
-                UpdateStatCard("total_revenue", $"€{totalRevenue:F2}");
+                UpdateStatCard("ΣυνολικάΈσοδα", $"€{totalRevenue:F2}");
 
                 // Update outstanding
                 var totalOutstanding = paymentManager.GetTotalOutstanding();
-                UpdateStatCard("total_outstanding", $"€{totalOutstanding:F2}");
+                UpdateStatCard("ΣυνολικάΕκκρεμή", $"€{totalOutstanding:F2}");
 
                 // Update recent activities if dashboard is selected
                 if (mainTabControl.SelectedTab == dashboardTab)
@@ -837,12 +807,12 @@ namespace BillPilot
                     }
                 }
 
-                statusLabel.Text = "Ready";
+                statusLabel.Text = "Έτοιμο";
             }
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading dashboard data", ex);
-                statusLabel.Text = "Error loading data";
+                statusLabel.Text = "Σφάλμα φόρτωσης δεδομένων";
             }
         }
 
@@ -859,178 +829,6 @@ namespace BillPilot
                         valueLabel.Text = value;
                         break;
                     }
-                }
-            }
-        }
-
-        private void ChangeLanguage(string language)
-        {
-            LocalizationManager.SetLanguage(language);
-
-            // Save language preference to a settings file
-            SaveLanguagePreference(language);
-
-            // Update all UI elements without restarting
-            UpdateAllUITexts();
-
-            MessageBox.Show("Language changed successfully!",
-                LocalizationManager.GetString("success"),
-                MessageBoxButtons.OK,
-                MessageBoxIcon.Information);
-        }
-
-        private void SaveLanguagePreference(string language)
-        {
-            try
-            {
-                string settingsPath = Path.Combine(Application.StartupPath, "settings.ini");
-                File.WriteAllText(settingsPath, $"Language={language}");
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error saving language preference", ex);
-            }
-        }
-
-        public static string LoadLanguagePreference()
-        {
-            try
-            {
-                string settingsPath = Path.Combine(Application.StartupPath, "settings.ini");
-                if (File.Exists(settingsPath))
-                {
-                    string content = File.ReadAllText(settingsPath);
-                    if (content.StartsWith("Language="))
-                    {
-                        return content.Substring(9);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                LogManager.LogError("Error loading language preference", ex);
-            }
-            return "gr"; // Default to Greek
-        }
-
-        private void UpdateAllUITexts()
-        {
-            // Update form title
-            this.Text = LocalizationManager.GetString("app_title");
-
-            // Update menu items
-            menuStrip.Items[0].Text = LocalizationManager.GetString("settings");
-            var fileMenu = menuStrip.Items[0] as ToolStripMenuItem;
-            fileMenu.DropDownItems[0].Text = LocalizationManager.GetString("change_password");
-            fileMenu.DropDownItems[2].Text = LocalizationManager.GetString("backup");
-            fileMenu.DropDownItems[3].Text = LocalizationManager.GetString("restore");
-            fileMenu.DropDownItems[5].Text = LocalizationManager.GetString("logout");
-            fileMenu.DropDownItems[7].Text = LocalizationManager.GetString("exit");
-
-            menuStrip.Items[1].Text = LocalizationManager.GetString("language");
-
-            // Update tab titles
-            dashboardTab.Text = LocalizationManager.GetString("dashboard");
-            clientsTab.Text = LocalizationManager.GetString("clients");
-            servicesTab.Text = LocalizationManager.GetString("services");
-            upcomingTab.Text = LocalizationManager.GetString("upcoming_payments");
-            delayedTab.Text = LocalizationManager.GetString("delayed_payments");
-            reportsTab.Text = LocalizationManager.GetString("reports");
-
-            // Update dashboard elements
-            UpdateDashboardTexts();
-
-            // Update status bar
-            statusLabel.Text = "Ready";
-            userLabel.Text = $"User: {SessionManager.CurrentUser}";
-
-            // Refresh current tab's content
-            if (mainTabControl.SelectedTab == clientsTab)
-            {
-                var clientControl = clientsTab.Controls.OfType<ClientListControl>().FirstOrDefault();
-                clientControl?.UpdateUILanguage();
-            }
-            else if (mainTabControl.SelectedTab == servicesTab)
-            {
-                var serviceControl = servicesTab.Controls.OfType<ServiceListControl>().FirstOrDefault();
-                serviceControl?.UpdateUILanguage();
-            }
-        }
-
-        private void UpdateDashboardTexts()
-        {
-            // Find and update welcome label
-            var welcomeLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.X == 240 && l.Location.Y == 30);
-            if (welcomeLabel != null)
-                welcomeLabel.Text = LocalizationManager.GetString("welcome");
-
-            // Find and update subtitle label
-            var subtitleLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.X == 240 && l.Location.Y == 65);
-            if (subtitleLabel != null)
-                subtitleLabel.Text = LocalizationManager.GetString("subtitle");
-
-            // Update quick actions label
-            var quickActionsLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 310 && l.Location.X == 20);
-            if (quickActionsLabel != null)
-                quickActionsLabel.Text = LocalizationManager.GetString("quick_actions");
-
-            // Update recent activity label
-            var activityLabel = dashboardTab.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 310 && l.Location.X == 620);
-            if (activityLabel != null)
-                activityLabel.Text = LocalizationManager.GetString("recent_activity");
-
-            // Update stat card titles
-            UpdateStatCardTitles();
-
-            // Update quick action buttons
-            UpdateQuickActionButtons();
-        }
-
-        private void UpdateStatCardTitles()
-        {
-            var statsPanel = dashboardTab.Controls.OfType<FlowLayoutPanel>()
-                .FirstOrDefault(p => p.Location.Y == 140);
-
-            if (statsPanel != null)
-            {
-                var cards = statsPanel.Controls.OfType<Panel>().ToList();
-                if (cards.Count >= 4)
-                {
-                    UpdateStatCardTitle(cards[0], LocalizationManager.GetString("total_clients"));
-                    UpdateStatCardTitle(cards[1], LocalizationManager.GetString("total_services"));
-                    UpdateStatCardTitle(cards[2], LocalizationManager.GetString("total_revenue"));
-                    UpdateStatCardTitle(cards[3], LocalizationManager.GetString("total_outstanding"));
-                }
-            }
-        }
-
-        private void UpdateStatCardTitle(Panel card, string newTitle)
-        {
-            var titleLabel = card.Controls.OfType<Label>()
-                .FirstOrDefault(l => l.Location.Y == 65);
-            if (titleLabel != null)
-                titleLabel.Text = newTitle;
-        }
-
-        private void UpdateQuickActionButtons()
-        {
-            var quickActionsPanel = dashboardTab.Controls.OfType<Panel>()
-                .FirstOrDefault(p => p.Location.X == 20 && p.Location.Y == 340);
-
-            if (quickActionsPanel != null)
-            {
-                var buttons = quickActionsPanel.Controls.OfType<Button>().ToList();
-                if (buttons.Count >= 5)
-                {
-                    buttons[0].Text = LocalizationManager.GetString("add_client");
-                    buttons[1].Text = LocalizationManager.GetString("add_service");
-                    buttons[2].Text = LocalizationManager.GetString("generate_report");
-                    buttons[3].Text = LocalizationManager.GetString("upcoming_payments");
-                    buttons[4].Text = LocalizationManager.GetString("delayed_payments");
                 }
             }
         }
@@ -1071,7 +869,7 @@ namespace BillPilot
         private void RestoreMenu_Click(object sender, EventArgs e)
         {
             var result = MessageBox.Show(
-                "Restoring a database will replace all current data. Are you sure you want to continue?",
+                "Η επαναφορά βάσης δεδομένων θα αντικαταστήσει όλα τα τρέχοντα δεδομένα. Είστε σίγουροι ότι θέλετε να συνεχίσετε;",
                 LocalizationManager.GetString("warning"),
                 MessageBoxButtons.YesNo,
                 MessageBoxIcon.Warning);
@@ -1593,7 +1391,7 @@ namespace BillPilot
 
             if (numBasePrice.Value <= 0)
             {
-                MessageBox.Show("Base price must be greater than 0.",
+                MessageBox.Show("Η βασική τιμή πρέπει να είναι μεγαλύτερη από 0.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 numBasePrice.Focus();
                 return false;
@@ -1727,39 +1525,6 @@ namespace BillPilot
             });
         }
 
-        public void UpdateUILanguage()
-        {
-            // Update labels
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-            searchTypeLabel.Text = LocalizationManager.GetString("search_by") + ":";
-
-            // Update search type combo items
-            searchTypeCombo.Items.Clear();
-            searchTypeCombo.Items.AddRange(new string[] {
-                LocalizationManager.GetString("all_fields"),
-                LocalizationManager.GetString("first_name"),
-                LocalizationManager.GetString("last_name"),
-                LocalizationManager.GetString("business_name"),
-                LocalizationManager.GetString("vat_number")
-            });
-            searchTypeCombo.SelectedIndex = 0;
-
-            // Update buttons
-            addButton.Text = LocalizationManager.GetString("add_client");
-            editButton.Text = LocalizationManager.GetString("edit_client");
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-
-            // Update grid column headers
-            clientsGrid.Columns[1].HeaderText = LocalizationManager.GetString("first_name");
-            clientsGrid.Columns[2].HeaderText = LocalizationManager.GetString("last_name");
-            clientsGrid.Columns[3].HeaderText = LocalizationManager.GetString("business_name");
-            clientsGrid.Columns[4].HeaderText = LocalizationManager.GetString("vat_number");
-            clientsGrid.Columns[5].HeaderText = LocalizationManager.GetString("email");
-            clientsGrid.Columns[6].HeaderText = LocalizationManager.GetString("phone");
-            clientsGrid.Columns[7].HeaderText = LocalizationManager.GetString("balance");
-        }
-
         private void LoadClients()
         {
             try
@@ -1770,7 +1535,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading clients", ex);
-                MessageBox.Show("Error loading clients. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης πελατών. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -1992,23 +1757,6 @@ namespace BillPilot
             });
         }
 
-        public void UpdateUILanguage()
-        {
-            // Update labels
-            searchLabel.Text = LocalizationManager.GetString("search") + ":";
-
-            // Update buttons
-            addButton.Text = LocalizationManager.GetString("add_service");
-            editButton.Text = LocalizationManager.GetString("edit_service");
-            deleteButton.Text = LocalizationManager.GetString("delete");
-            refreshButton.Text = LocalizationManager.GetString("refresh");
-
-            // Update grid column headers
-            servicesGrid.Columns[1].HeaderText = LocalizationManager.GetString("service_name");
-            servicesGrid.Columns[2].HeaderText = LocalizationManager.GetString("description");
-            servicesGrid.Columns[3].HeaderText = LocalizationManager.GetString("base_price");
-        }
-
         private void LoadServices()
         {
             try
@@ -2019,7 +1767,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading services", ex);
-                MessageBox.Show("Error loading services. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης υπηρεσιών. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -2197,7 +1945,7 @@ namespace BillPilot
 
             if (isFirstLogin)
             {
-                lblOldPassword.Text = "Default Password:";
+                lblOldPassword.Text = "Προεπιλεγμένος Κωδικός:";
                 txtOldPassword.Text = "admin123";
                 txtOldPassword.ReadOnly = true;
             }
@@ -2236,6 +1984,210 @@ namespace BillPilot
                 MessageBox.Show(LocalizationManager.GetString("invalid_old_password"),
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 txtOldPassword.Focus();
+            }
+        }
+    }
+
+    // ===================== PAID PAYMENTS CONTROL =====================
+    public partial class PaidPaymentsControl : UserControl
+    {
+        private DatabaseManager dbManager;
+        private PaymentManager paymentManager;
+        private DataGridView paidGrid;
+        private DateTimePicker fromDatePicker, toDatePicker;
+        private TextBox searchBox;
+        private Button refreshButton, exportButton;
+        private Label totalLabel;
+
+        public PaidPaymentsControl(DatabaseManager dbManager)
+        {
+            this.dbManager = dbManager;
+            this.paymentManager = new PaymentManager(dbManager);
+            InitializeComponent();
+            LoadPaidPayments();
+        }
+
+        private void InitializeComponent()
+        {
+            this.BackColor = Color.FromArgb(248, 249, 250);
+
+            // Date range and search controls
+            var fromLabel = new Label();
+            fromLabel.Text = LocalizationManager.GetString("from_date") + ":";
+            fromLabel.Location = new Point(20, 20);
+            fromLabel.Size = new Size(80, 20);
+
+            fromDatePicker = new DateTimePicker();
+            fromDatePicker.Location = new Point(110, 18);
+            fromDatePicker.Size = new Size(120, 20);
+            fromDatePicker.Value = DateTime.Now.AddMonths(-1);
+
+            var toLabel = new Label();
+            toLabel.Text = LocalizationManager.GetString("to_date") + ":";
+            toLabel.Location = new Point(250, 20);
+            toLabel.Size = new Size(80, 20);
+
+            toDatePicker = new DateTimePicker();
+            toDatePicker.Location = new Point(340, 18);
+            toDatePicker.Size = new Size(120, 20);
+            toDatePicker.Value = DateTime.Now;
+
+            var searchLabel = new Label();
+            searchLabel.Text = LocalizationManager.GetString("search") + ":";
+            searchLabel.Location = new Point(480, 20);
+            searchLabel.Size = new Size(60, 20);
+
+            searchBox = new TextBox();
+            searchBox.Location = new Point(550, 18);
+            searchBox.Size = new Size(200, 20);
+            searchBox.TextChanged += (s, e) => LoadPaidPayments();
+
+            refreshButton = new Button();
+            refreshButton.Text = LocalizationManager.GetString("refresh");
+            refreshButton.Location = new Point(770, 15);
+            refreshButton.Size = new Size(100, 30);
+            refreshButton.UseVisualStyleBackColor = true;
+            refreshButton.Click += (s, e) => LoadPaidPayments();
+
+            exportButton = new Button();
+            exportButton.Text = LocalizationManager.GetString("export");
+            exportButton.Location = new Point(880, 15);
+            exportButton.Size = new Size(100, 30);
+            exportButton.UseVisualStyleBackColor = true;
+            exportButton.Click += ExportButton_Click;
+
+            totalLabel = new Label();
+            totalLabel.Text = LocalizationManager.GetString("total") + ": €0.00";
+            totalLabel.Location = new Point(this.Width - 200, 50);
+            totalLabel.Size = new Size(180, 20);
+            totalLabel.Font = new Font("Arial", 11, FontStyle.Bold);
+            totalLabel.ForeColor = Color.DarkGreen;
+            totalLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            totalLabel.TextAlign = ContentAlignment.MiddleRight;
+
+            // DataGridView
+            paidGrid = new DataGridView();
+            paidGrid.Location = new Point(20, 80);
+            paidGrid.Size = new Size(this.Width - 40, this.Height - 100);
+            paidGrid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
+            paidGrid.AutoGenerateColumns = false;
+            paidGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            paidGrid.MultiSelect = false;
+            paidGrid.ReadOnly = true;
+            paidGrid.AllowUserToAddRows = false;
+            paidGrid.AllowUserToResizeRows = false;
+            paidGrid.RowHeadersVisible = false;
+            paidGrid.BackgroundColor = Color.White;
+            paidGrid.BorderStyle = BorderStyle.Fixed3D;
+
+            // Add columns
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ClientName", HeaderText = LocalizationManager.GetString("client"), Width = 200 });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "ServiceName", HeaderText = LocalizationManager.GetString("service_name"), Width = 200 });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "Amount",
+                HeaderText = LocalizationManager.GetString("amount"),
+                Width = 100,
+                DefaultCellStyle = new DataGridViewCellStyle { Format = "C2" }
+            });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn
+            {
+                DataPropertyName = "PaidDate",
+                HeaderText = LocalizationManager.GetString("payment_date"),
+                Width = 120,
+                DefaultCellStyle = new DataGridViewCellStyle { Format = "dd/MM/yyyy" }
+            });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "PaymentMethod", HeaderText = LocalizationManager.GetString("payment_method"), Width = 120 });
+            paidGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Reference", HeaderText = LocalizationManager.GetString("reference"), Width = 150 });
+
+            // Style the grid
+            paidGrid.EnableHeadersVisualStyles = false;
+            paidGrid.ColumnHeadersDefaultCellStyle.BackColor = Color.FromArgb(40, 167, 69);
+            paidGrid.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
+            paidGrid.ColumnHeadersDefaultCellStyle.Font = new Font("Arial", 10, FontStyle.Bold);
+            paidGrid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
+
+            this.Controls.AddRange(new Control[] {
+                fromLabel, fromDatePicker, toLabel, toDatePicker, searchLabel, searchBox,
+                refreshButton, exportButton, totalLabel, paidGrid
+            });
+        }
+
+        private void LoadPaidPayments()
+        {
+            try
+            {
+                var searchTerm = searchBox.Text.Trim();
+                List<Payment> paidPayments;
+
+                if (string.IsNullOrEmpty(searchTerm))
+                {
+                    paidPayments = paymentManager.GetPaidPayments(fromDatePicker.Value, toDatePicker.Value);
+                }
+                else
+                {
+                    paidPayments = paymentManager.SearchPayments(searchTerm, true, fromDatePicker.Value, toDatePicker.Value);
+                }
+
+                paidGrid.DataSource = paidPayments;
+
+                // Calculate and display total
+                decimal total = paidPayments.Sum(p => p.Amount);
+                totalLabel.Text = LocalizationManager.GetString("total") + $": €{total:F2}";
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogError("Error loading paid payments", ex);
+                MessageBox.Show("Σφάλμα φόρτωσης πληρωμένων πληρωμών. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
+                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void ExportButton_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                using (var saveDialog = new SaveFileDialog())
+                {
+                    saveDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*";
+                    saveDialog.DefaultExt = "csv";
+                    saveDialog.FileName = $"Πληρωμένες_Πληρωμές_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+
+                    if (saveDialog.ShowDialog() == DialogResult.OK)
+                    {
+                        var csv = new System.Text.StringBuilder();
+
+                        // Headers
+                        csv.AppendLine("Πελάτης,Υπηρεσία,Ποσό,Ημερομηνία Πληρωμής,Μέθοδος Πληρωμής,Αναφορά");
+
+                        // Data
+                        foreach (DataGridViewRow row in paidGrid.Rows)
+                        {
+                            var cells = new string[]
+                            {
+                                row.Cells["ClientName"].Value?.ToString() ?? "",
+                                row.Cells["ServiceName"].Value?.ToString() ?? "",
+                                row.Cells["Amount"].Value?.ToString() ?? "",
+                                row.Cells["PaidDate"].Value != null ? ((DateTime)row.Cells["PaidDate"].Value).ToString("dd/MM/yyyy") : "",
+                                row.Cells["PaymentMethod"].Value?.ToString() ?? "",
+                                row.Cells["Reference"].Value?.ToString() ?? ""
+                            };
+                            csv.AppendLine(string.Join(",", cells.Select(c => c.Replace(",", ";"))));
+                        }
+
+                        System.IO.File.WriteAllText(saveDialog.FileName, csv.ToString(), System.Text.Encoding.UTF8);
+
+                        MessageBox.Show(LocalizationManager.GetString("export_success"),
+                            LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogError("Error exporting paid payments", ex);
+                MessageBox.Show("Σφάλμα εξαγωγής δεδομένων. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
+                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

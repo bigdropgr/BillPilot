@@ -15,6 +15,7 @@ namespace BillPilot
         private PaymentManager paymentManager;
         private DataGridView upcomingGrid;
         private DateTimePicker fromDatePicker, toDatePicker;
+        private TextBox searchBox;
         private Button refreshButton, editPaymentButton;
         private Label totalLabel;
 
@@ -30,7 +31,7 @@ namespace BillPilot
         {
             this.BackColor = Color.FromArgb(248, 249, 250);
 
-            // Date range controls
+            // Date range and search controls
             var fromLabel = new Label();
             fromLabel.Text = LocalizationManager.GetString("from_date") + ":";
             fromLabel.Location = new Point(20, 20);
@@ -38,44 +39,56 @@ namespace BillPilot
 
             fromDatePicker = new DateTimePicker();
             fromDatePicker.Location = new Point(110, 18);
-            fromDatePicker.Size = new Size(200, 20);
+            fromDatePicker.Size = new Size(120, 20);
             fromDatePicker.Value = DateTime.Now.Date;
 
             var toLabel = new Label();
             toLabel.Text = LocalizationManager.GetString("to_date") + ":";
-            toLabel.Location = new Point(330, 20);
+            toLabel.Location = new Point(250, 20);
             toLabel.Size = new Size(80, 20);
 
             toDatePicker = new DateTimePicker();
-            toDatePicker.Location = new Point(420, 18);
-            toDatePicker.Size = new Size(200, 20);
+            toDatePicker.Location = new Point(340, 18);
+            toDatePicker.Size = new Size(120, 20);
             toDatePicker.Value = DateTime.Now.AddDays(30).Date;
+
+            var searchLabel = new Label();
+            searchLabel.Text = LocalizationManager.GetString("search") + ":";
+            searchLabel.Location = new Point(480, 20);
+            searchLabel.Size = new Size(60, 20);
+
+            searchBox = new TextBox();
+            searchBox.Location = new Point(550, 18);
+            searchBox.Size = new Size(200, 20);
+            searchBox.TextChanged += (s, e) => LoadUpcomingPayments();
 
             refreshButton = new Button();
             refreshButton.Text = LocalizationManager.GetString("refresh");
-            refreshButton.Location = new Point(640, 15);
+            refreshButton.Location = new Point(770, 15);
             refreshButton.Size = new Size(100, 30);
             refreshButton.UseVisualStyleBackColor = true;
             refreshButton.Click += (s, e) => LoadUpcomingPayments();
 
             editPaymentButton = new Button();
             editPaymentButton.Text = LocalizationManager.GetString("edit_payment");
-            editPaymentButton.Location = new Point(750, 15);
+            editPaymentButton.Location = new Point(880, 15);
             editPaymentButton.Size = new Size(120, 30);
             editPaymentButton.UseVisualStyleBackColor = true;
             editPaymentButton.Click += EditPaymentButton_Click;
 
             totalLabel = new Label();
             totalLabel.Text = LocalizationManager.GetString("total") + ": €0.00";
-            totalLabel.Location = new Point(890, 20);
-            totalLabel.Size = new Size(200, 20);
+            totalLabel.Location = new Point(this.Width - 200, 50);
+            totalLabel.Size = new Size(180, 20);
             totalLabel.Font = new Font("Arial", 11, FontStyle.Bold);
             totalLabel.ForeColor = Color.DarkGreen;
+            totalLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            totalLabel.TextAlign = ContentAlignment.MiddleRight;
 
             // DataGridView
             upcomingGrid = new DataGridView();
-            upcomingGrid.Location = new Point(20, 60);
-            upcomingGrid.Size = new Size(this.Width - 40, this.Height - 80);
+            upcomingGrid.Location = new Point(20, 80);
+            upcomingGrid.Size = new Size(this.Width - 40, this.Height - 100);
             upcomingGrid.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right | AnchorStyles.Bottom;
             upcomingGrid.AutoGenerateColumns = false;
             upcomingGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
@@ -115,7 +128,8 @@ namespace BillPilot
             upcomingGrid.AlternatingRowsDefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245);
 
             this.Controls.AddRange(new Control[] {
-                fromLabel, fromDatePicker, toLabel, toDatePicker, refreshButton, editPaymentButton, totalLabel, upcomingGrid
+                fromLabel, fromDatePicker, toLabel, toDatePicker, searchLabel, searchBox,
+                refreshButton, editPaymentButton, totalLabel, upcomingGrid
             });
         }
 
@@ -123,7 +137,19 @@ namespace BillPilot
         {
             try
             {
-                var upcomingPayments = paymentManager.GetUpcomingPayments(fromDatePicker.Value, toDatePicker.Value);
+                var searchTerm = searchBox.Text.Trim();
+                List<Payment> upcomingPayments;
+
+                if (string.IsNullOrEmpty(searchTerm))
+                {
+                    upcomingPayments = paymentManager.GetUpcomingPayments(fromDatePicker.Value, toDatePicker.Value);
+                }
+                else
+                {
+                    upcomingPayments = paymentManager.SearchPayments(searchTerm, false, fromDatePicker.Value, toDatePicker.Value)
+                        .Where(p => !p.IsOverdue && p.DueDate >= DateTime.Now.Date).ToList();
+                }
+
                 upcomingGrid.DataSource = upcomingPayments;
 
                 // Calculate and display total
@@ -133,7 +159,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading upcoming payments", ex);
-                MessageBox.Show("Error loading upcoming payments. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης επερχόμενων πληρωμών. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -163,6 +189,7 @@ namespace BillPilot
         private DatabaseManager dbManager;
         private PaymentManager paymentManager;
         private DataGridView delayedGrid;
+        private TextBox searchBox;
         private Button refreshButton, markPaidButton;
         private Label totalLabel;
 
@@ -178,17 +205,27 @@ namespace BillPilot
         {
             this.BackColor = Color.FromArgb(248, 249, 250);
 
-            // Controls
+            // Search controls
+            var searchLabel = new Label();
+            searchLabel.Text = LocalizationManager.GetString("search") + ":";
+            searchLabel.Location = new Point(20, 20);
+            searchLabel.Size = new Size(60, 20);
+
+            searchBox = new TextBox();
+            searchBox.Location = new Point(90, 18);
+            searchBox.Size = new Size(200, 20);
+            searchBox.TextChanged += (s, e) => LoadDelayedPayments();
+
             refreshButton = new Button();
             refreshButton.Text = LocalizationManager.GetString("refresh");
-            refreshButton.Location = new Point(20, 15);
+            refreshButton.Location = new Point(310, 15);
             refreshButton.Size = new Size(100, 30);
             refreshButton.UseVisualStyleBackColor = true;
             refreshButton.Click += (s, e) => LoadDelayedPayments();
 
             markPaidButton = new Button();
             markPaidButton.Text = LocalizationManager.GetString("mark_as_paid");
-            markPaidButton.Location = new Point(130, 15);
+            markPaidButton.Location = new Point(420, 15);
             markPaidButton.Size = new Size(120, 30);
             markPaidButton.UseVisualStyleBackColor = true;
             markPaidButton.Click += MarkPaidButton_Click;
@@ -200,6 +237,7 @@ namespace BillPilot
             totalLabel.Font = new Font("Arial", 12, FontStyle.Bold);
             totalLabel.ForeColor = Color.Red;
             totalLabel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            totalLabel.TextAlign = ContentAlignment.MiddleRight;
 
             // DataGridView
             delayedGrid = new DataGridView();
@@ -234,7 +272,7 @@ namespace BillPilot
                 Width = 120,
                 DefaultCellStyle = new DataGridViewCellStyle { Format = "dd/MM/yyyy" }
             });
-            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Notes", HeaderText = "Contact Info", Width = 250 });
+            delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Notes", HeaderText = "Στοιχεία Επικοινωνίας", Width = 250 });
 
             // Style the grid
             delayedGrid.EnableHeadersVisualStyles = false;
@@ -247,7 +285,7 @@ namespace BillPilot
             delayedGrid.CellFormatting += DelayedGrid_CellFormatting;
 
             this.Controls.AddRange(new Control[] {
-                refreshButton, markPaidButton, totalLabel, delayedGrid
+                searchLabel, searchBox, refreshButton, markPaidButton, totalLabel, delayedGrid
             });
         }
 
@@ -275,7 +313,19 @@ namespace BillPilot
         {
             try
             {
-                var delayedPayments = paymentManager.GetOverduePayments();
+                var searchTerm = searchBox.Text.Trim();
+                List<Payment> delayedPayments;
+
+                if (string.IsNullOrEmpty(searchTerm))
+                {
+                    delayedPayments = paymentManager.GetOverduePayments();
+                }
+                else
+                {
+                    delayedPayments = paymentManager.SearchPayments(searchTerm, false, null, null)
+                        .Where(p => p.IsOverdue).ToList();
+                }
+
                 delayedGrid.DataSource = delayedPayments;
 
                 // Calculate total
@@ -285,7 +335,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading delayed payments", ex);
-                MessageBox.Show("Error loading delayed payments. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης καθυστερημένων πληρωμών. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -428,13 +478,13 @@ namespace BillPilot
                 catch (Exception ex)
                 {
                     LogManager.LogError("Error generating revenue report", ex);
-                    MessageBox.Show("Error generating report. Please check the log for details.",
+                    MessageBox.Show("Σφάλμα δημιουργίας αναφοράς. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                         LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
 
             exportButton.Click += (s, e) => {
-                ExportGridToExcel(resultsGrid, "Revenue_Report");
+                ExportGridToExcel(resultsGrid, "Αναφορά_Εσόδων");
             };
 
             panel.Controls.AddRange(new Control[] {
@@ -483,13 +533,13 @@ namespace BillPilot
                 catch (Exception ex)
                 {
                     LogManager.LogError("Error generating outstanding report", ex);
-                    MessageBox.Show("Error generating report. Please check the log for details.",
+                    MessageBox.Show("Σφάλμα δημιουργίας αναφοράς. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                         LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
 
             exportButton.Click += (s, e) => {
-                ExportGridToExcel(resultsGrid, "Outstanding_Report");
+                ExportGridToExcel(resultsGrid, "Αναφορά_Εκκρεμών");
             };
 
             panel.Controls.AddRange(new Control[] {
@@ -537,13 +587,13 @@ namespace BillPilot
                 catch (Exception ex)
                 {
                     LogManager.LogError("Error generating performance report", ex);
-                    MessageBox.Show("Error generating report. Please check the log for details.",
+                    MessageBox.Show("Σφάλμα δημιουργίας αναφοράς. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                         LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
 
             exportButton.Click += (s, e) => {
-                ExportGridToExcel(resultsGrid, "Service_Performance_Report");
+                ExportGridToExcel(resultsGrid, "Απόδοση_Υπηρεσιών");
             };
 
             panel.Controls.AddRange(new Control[] {
@@ -591,13 +641,13 @@ namespace BillPilot
                 catch (Exception ex)
                 {
                     LogManager.LogError("Error generating profitability report", ex);
-                    MessageBox.Show("Error generating report. Please check the log for details.",
+                    MessageBox.Show("Σφάλμα δημιουργίας αναφοράς. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                         LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 }
             };
 
             exportButton.Click += (s, e) => {
-                ExportGridToExcel(resultsGrid, "Client_Profitability_Report");
+                ExportGridToExcel(resultsGrid, "Κερδοφορία_Πελατών");
             };
 
             panel.Controls.AddRange(new Control[] {
@@ -636,7 +686,7 @@ namespace BillPilot
                             csv.AppendLine(string.Join(",", cells));
                         }
 
-                        File.WriteAllText(saveDialog.FileName, csv.ToString());
+                        File.WriteAllText(saveDialog.FileName, csv.ToString(), Encoding.UTF8);
 
                         MessageBox.Show(LocalizationManager.GetString("export_success"),
                             LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
@@ -646,7 +696,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error exporting to Excel", ex);
-                MessageBox.Show("Error exporting data. Please check the log for details.",
+                MessageBox.Show("Σφάλμα εξαγωγής δεδομένων. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -676,9 +726,9 @@ namespace BillPilot
 
             // Buttons
             addButton = new Button();
-            addButton.Text = "Add Contact";
+            addButton.Text = "Προσθήκη Επικοινωνίας";
             addButton.Location = new Point(20, 15);
-            addButton.Size = new Size(100, 30);
+            addButton.Size = new Size(140, 30);
             addButton.UseVisualStyleBackColor = true;
             addButton.Click += AddButton_Click;
 
@@ -726,7 +776,7 @@ namespace BillPilot
             historyGrid.Columns.Add(new DataGridViewTextBoxColumn
             {
                 DataPropertyName = "CreatedBy",
-                HeaderText = "Created By",
+                HeaderText = "Δημιουργήθηκε από",
                 Width = 120
             });
 
@@ -745,7 +795,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading contact history", ex);
-                MessageBox.Show("Error loading contact history. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης ιστορικού επικοινωνίας. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -887,7 +937,7 @@ namespace BillPilot
             catch (Exception ex)
             {
                 LogManager.LogError("Error loading client services", ex);
-                MessageBox.Show("Error loading client services. Please check the log for details.",
+                MessageBox.Show("Σφάλμα φόρτωσης υπηρεσιών πελάτη. Παρακαλώ ελέγξτε το αρχείο καταγραφής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -972,7 +1022,7 @@ namespace BillPilot
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.Text = "Add Contact";
+            this.Text = "Προσθήκη Επικοινωνίας";
 
             // Contact Type
             var lblType = new Label();
@@ -984,7 +1034,7 @@ namespace BillPilot
             cboContactType.Location = new Point(130, 18);
             cboContactType.Size = new Size(330, 20);
             cboContactType.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboContactType.Items.AddRange(new string[] { "Phone Call", "Email", "Meeting", "SMS", "Other" });
+            cboContactType.Items.AddRange(new string[] { "Τηλεφωνική Κλήση", "Email", "Συνάντηση", "SMS", "Άλλο" });
             cboContactType.SelectedIndex = 0;
 
             // Notes
@@ -1023,7 +1073,7 @@ namespace BillPilot
         {
             if (string.IsNullOrWhiteSpace(txtNotes.Text))
             {
-                MessageBox.Show("Please enter contact notes.",
+                MessageBox.Show("Παρακαλώ εισάγετε σημειώσεις επικοινωνίας.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 txtNotes.Focus();
                 return;
@@ -1042,7 +1092,7 @@ namespace BillPilot
             {
                 new ContactHistoryManager(dbManager).AddContact(contact);
                 LogManager.LogInfo($"Contact history added for client ID: {clientId}");
-                MessageBox.Show("Contact history added successfully.",
+                MessageBox.Show("Το ιστορικό επικοινωνίας προστέθηκε επιτυχώς.",
                     LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
                 this.DialogResult = DialogResult.OK;
             }
@@ -1085,7 +1135,7 @@ namespace BillPilot
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
-            this.Text = isEdit ? "Edit Client Service" : "Add Client Service";
+            this.Text = isEdit ? "Επεξεργασία Υπηρεσίας Πελάτη" : "Προσθήκη Υπηρεσίας Πελάτη";
 
             int yPos = 20;
 
@@ -1165,7 +1215,7 @@ namespace BillPilot
             numChargeDay.Value = 1;
 
             var lblChargeDayHelp = new Label();
-            lblChargeDayHelp.Text = "(Day of month for monthly, Day of year for yearly)";
+            lblChargeDayHelp.Text = "(Ημέρα του μήνα για μηνιαία, Ημέρα του έτους για ετήσια)";
             lblChargeDayHelp.Location = new Point(220, yPos);
             lblChargeDayHelp.Size = new Size(240, 20);
             lblChargeDayHelp.Font = new Font("Arial", 8);
@@ -1226,10 +1276,31 @@ namespace BillPilot
             {
                 // Load existing data
                 cboService.SelectedValue = clientService.ServiceId;
-                cboServiceType.Text = clientService.ServiceType;
+                cboServiceType.Text = clientService.ServiceType == "Periodic" ? LocalizationManager.GetString("periodic") : LocalizationManager.GetString("one_off");
                 numPrice.Value = clientService.CustomPrice ?? clientService.Price;
                 if (clientService.Period != null)
-                    cboPeriod.Text = clientService.Period;
+                {
+                    // Map stored value to localized display
+                    switch (clientService.Period.ToLower())
+                    {
+                        case "weekly":
+                        case "εβδομαδιαία":
+                            cboPeriod.Text = LocalizationManager.GetString("weekly");
+                            break;
+                        case "monthly":
+                        case "μηνιαία":
+                            cboPeriod.Text = LocalizationManager.GetString("monthly");
+                            break;
+                        case "quarterly":
+                        case "τριμηνιαία":
+                            cboPeriod.Text = LocalizationManager.GetString("quarterly");
+                            break;
+                        case "yearly":
+                        case "ετήσια":
+                            cboPeriod.Text = LocalizationManager.GetString("yearly");
+                            break;
+                    }
+                }
                 if (clientService.ChargeDay.HasValue)
                     numChargeDay.Value = clientService.ChargeDay.Value;
                 dtpStartDate.Value = clientService.StartDate;
@@ -1261,7 +1332,7 @@ namespace BillPilot
         {
             if (cboService.SelectedItem == null)
             {
-                MessageBox.Show("Please select a service.",
+                MessageBox.Show("Παρακαλώ επιλέξτε μια υπηρεσία.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
@@ -1273,7 +1344,7 @@ namespace BillPilot
                     Id = isEdit ? clientService.Id : 0,
                     ClientId = clientId,
                     ServiceId = ((Service)cboService.SelectedItem).Id,
-                    ServiceType = cboServiceType.Text,
+                    ServiceType = cboServiceType.Text == LocalizationManager.GetString("periodic") ? "Periodic" : "OneOff",
                     CustomPrice = numPrice.Value,
                     Period = cboPeriod.Enabled ? cboPeriod.Text : null,
                     ChargeDay = numChargeDay.Enabled ? (int?)numChargeDay.Value : null,
@@ -1313,6 +1384,11 @@ namespace BillPilot
         private DateTimePicker dtpDueDate;
         private NumericUpDown numAmount;
         private TextBox txtNotes;
+        private CheckBox chkIsPaid;
+        private GroupBox grpPaymentDetails;
+        private DateTimePicker dtpPaidDate;
+        private ComboBox cboPaymentMethod;
+        private TextBox txtReference;
         private Button btnSave, btnCancel;
 
         public EditPaymentForm(DatabaseManager dbManager, Payment payment)
@@ -1325,7 +1401,7 @@ namespace BillPilot
 
         private void InitializeComponent()
         {
-            this.Size = new Size(400, 350);
+            this.Size = new Size(450, 500);
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
@@ -1342,7 +1418,7 @@ namespace BillPilot
             var lblClientName = new Label();
             lblClientName.Text = payment.ClientName;
             lblClientName.Location = new Point(130, yPos);
-            lblClientName.Size = new Size(230, 20);
+            lblClientName.Size = new Size(280, 20);
             lblClientName.Font = new Font("Arial", 10, FontStyle.Bold);
             yPos += 30;
 
@@ -1353,9 +1429,9 @@ namespace BillPilot
             lblService.Size = new Size(100, 20);
 
             var lblServiceName = new Label();
-            lblServiceName.Text = payment.ServiceName ?? "General Payment";
+            lblServiceName.Text = payment.ServiceName ?? "Γενική Πληρωμή";
             lblServiceName.Location = new Point(130, yPos);
-            lblServiceName.Size = new Size(230, 20);
+            lblServiceName.Size = new Size(280, 20);
             yPos += 30;
 
             // Due Date
@@ -1383,6 +1459,66 @@ namespace BillPilot
             numAmount.ThousandsSeparator = true;
             yPos += 35;
 
+            // Is Paid Checkbox
+            chkIsPaid = new CheckBox();
+            chkIsPaid.Text = LocalizationManager.GetString("is_paid");
+            chkIsPaid.Location = new Point(20, yPos);
+            chkIsPaid.Size = new Size(200, 25);
+            chkIsPaid.Font = new Font("Arial", 11, FontStyle.Bold);
+            chkIsPaid.CheckedChanged += ChkIsPaid_CheckedChanged;
+            yPos += 35;
+
+            // Payment Details Group
+            grpPaymentDetails = new GroupBox();
+            grpPaymentDetails.Text = "Στοιχεία Πληρωμής";
+            grpPaymentDetails.Location = new Point(20, yPos);
+            grpPaymentDetails.Size = new Size(390, 140);
+
+            // Paid Date
+            var lblPaidDate = new Label();
+            lblPaidDate.Text = LocalizationManager.GetString("payment_date") + ":";
+            lblPaidDate.Location = new Point(10, 25);
+            lblPaidDate.Size = new Size(100, 20);
+
+            dtpPaidDate = new DateTimePicker();
+            dtpPaidDate.Location = new Point(110, 23);
+            dtpPaidDate.Size = new Size(200, 20);
+
+            // Payment Method
+            var lblPaymentMethod = new Label();
+            lblPaymentMethod.Text = LocalizationManager.GetString("payment_method") + ":";
+            lblPaymentMethod.Location = new Point(10, 55);
+            lblPaymentMethod.Size = new Size(100, 20);
+
+            cboPaymentMethod = new ComboBox();
+            cboPaymentMethod.Location = new Point(110, 53);
+            cboPaymentMethod.Size = new Size(200, 20);
+            cboPaymentMethod.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboPaymentMethod.Items.AddRange(new string[] {
+                LocalizationManager.GetString("cash"),
+                LocalizationManager.GetString("bank_transfer"),
+                LocalizationManager.GetString("credit_card"),
+                LocalizationManager.GetString("check")
+            });
+
+            // Reference
+            var lblReference = new Label();
+            lblReference.Text = LocalizationManager.GetString("reference") + ":";
+            lblReference.Location = new Point(10, 85);
+            lblReference.Size = new Size(100, 20);
+
+            txtReference = new TextBox();
+            txtReference.Location = new Point(110, 83);
+            txtReference.Size = new Size(260, 20);
+
+            grpPaymentDetails.Controls.AddRange(new Control[] {
+                lblPaidDate, dtpPaidDate, lblPaymentMethod, cboPaymentMethod,
+                lblReference, txtReference
+            });
+
+            grpPaymentDetails.Enabled = false;
+            yPos += 150;
+
             // Notes
             var lblNotes = new Label();
             lblNotes.Text = LocalizationManager.GetString("notes") + ":";
@@ -1391,7 +1527,7 @@ namespace BillPilot
 
             txtNotes = new TextBox();
             txtNotes.Location = new Point(130, yPos);
-            txtNotes.Size = new Size(230, 60);
+            txtNotes.Size = new Size(280, 60);
             txtNotes.Multiline = true;
             txtNotes.ScrollBars = ScrollBars.Vertical;
             yPos += 70;
@@ -1399,14 +1535,14 @@ namespace BillPilot
             // Buttons
             btnSave = new Button();
             btnSave.Text = LocalizationManager.GetString("save");
-            btnSave.Location = new Point(200, yPos);
+            btnSave.Location = new Point(250, yPos);
             btnSave.Size = new Size(80, 30);
             btnSave.UseVisualStyleBackColor = true;
             btnSave.Click += BtnSave_Click;
 
             btnCancel = new Button();
             btnCancel.Text = LocalizationManager.GetString("cancel");
-            btnCancel.Location = new Point(290, yPos);
+            btnCancel.Location = new Point(340, yPos);
             btnCancel.Size = new Size(80, 30);
             btnCancel.UseVisualStyleBackColor = true;
             btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
@@ -1414,8 +1550,19 @@ namespace BillPilot
             this.Controls.AddRange(new Control[] {
                 lblClient, lblClientName, lblService, lblServiceName,
                 lblDueDate, dtpDueDate, lblAmount, numAmount,
+                chkIsPaid, grpPaymentDetails,
                 lblNotes, txtNotes, btnSave, btnCancel
             });
+        }
+
+        private void ChkIsPaid_CheckedChanged(object sender, EventArgs e)
+        {
+            grpPaymentDetails.Enabled = chkIsPaid.Checked;
+            if (chkIsPaid.Checked && cboPaymentMethod.SelectedIndex < 0)
+            {
+                dtpPaidDate.Value = DateTime.Now;
+                cboPaymentMethod.SelectedIndex = 0;
+            }
         }
 
         private void LoadPaymentData()
@@ -1423,38 +1570,76 @@ namespace BillPilot
             dtpDueDate.Value = payment.DueDate;
             numAmount.Value = payment.Amount;
             txtNotes.Text = payment.Notes;
+            chkIsPaid.Checked = payment.IsPaid;
+
+            if (payment.IsPaid)
+            {
+                dtpPaidDate.Value = payment.PaidDate ?? DateTime.Now;
+                // Map payment method to combo box
+                switch (payment.PaymentMethod)
+                {
+                    case "Cash":
+                    case "Μετρητά":
+                        cboPaymentMethod.SelectedIndex = 0;
+                        break;
+                    case "Bank Transfer":
+                    case "Τραπεζική Μεταφορά":
+                        cboPaymentMethod.SelectedIndex = 1;
+                        break;
+                    case "Credit Card":
+                    case "Πιστωτική Κάρτα":
+                        cboPaymentMethod.SelectedIndex = 2;
+                        break;
+                    case "Check":
+                    case "Επιταγή":
+                        cboPaymentMethod.SelectedIndex = 3;
+                        break;
+                    default:
+                        cboPaymentMethod.SelectedIndex = 0;
+                        break;
+                }
+                txtReference.Text = payment.Reference ?? "";
+            }
         }
 
         private void BtnSave_Click(object sender, EventArgs e)
         {
             if (numAmount.Value <= 0)
             {
-                MessageBox.Show("Amount must be greater than 0.",
+                MessageBox.Show("Το ποσό πρέπει να είναι μεγαλύτερο από 0.",
+                    LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            if (chkIsPaid.Checked && cboPaymentMethod.SelectedIndex < 0)
+            {
+                MessageBox.Show("Παρακαλώ επιλέξτε μέθοδο πληρωμής.",
                     LocalizationManager.GetString("error"), MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
             }
 
             try
             {
-                // Update payment in database
-                using (var connection = dbManager.GetConnection())
+                payment.DueDate = dtpDueDate.Value.Date;
+                payment.Amount = numAmount.Value;
+                payment.Notes = txtNotes.Text.Trim();
+                payment.IsPaid = chkIsPaid.Checked;
+
+                if (chkIsPaid.Checked)
                 {
-                    connection.Open();
-                    using (var cmd = new SQLiteCommand(@"
-                        UPDATE Payments 
-                        SET DueDate = @dueDate,
-                            Amount = @amount,
-                            Notes = @notes
-                        WHERE Id = @id", connection))
-                    {
-                        cmd.Parameters.AddWithValue("@id", payment.Id);
-                        cmd.Parameters.AddWithValue("@dueDate", dtpDueDate.Value.Date);
-                        cmd.Parameters.AddWithValue("@amount", numAmount.Value);
-                        cmd.Parameters.AddWithValue("@notes", txtNotes.Text.Trim());
-                        
-                        cmd.ExecuteNonQuery();
-                    }
+                    payment.PaidDate = dtpPaidDate.Value.Date;
+                    payment.PaymentMethod = cboPaymentMethod.Text;
+                    payment.Reference = txtReference.Text.Trim();
                 }
+                else
+                {
+                    payment.PaidDate = null;
+                    payment.PaymentMethod = null;
+                    payment.Reference = null;
+                }
+
+                var paymentManager = new PaymentManager(dbManager);
+                paymentManager.UpdatePayment(payment);
 
                 LogManager.LogInfo($"Payment updated: ID {payment.Id}");
                 this.DialogResult = DialogResult.OK;
@@ -1492,3 +1677,170 @@ namespace BillPilot
             this.StartPosition = FormStartPosition.CenterParent;
             this.FormBorderStyle = FormBorderStyle.FixedDialog;
             this.MaximizeBox = false;
+            this.Text = LocalizationManager.GetString("mark_as_paid");
+
+            int yPos = 20;
+
+            // Payment Info
+            var lblPaymentInfo = new Label();
+            lblPaymentInfo.Text = "Στοιχεία Πληρωμής";
+            lblPaymentInfo.Font = new Font("Arial", 12, FontStyle.Bold);
+            lblPaymentInfo.Location = new Point(20, yPos);
+            lblPaymentInfo.Size = new Size(200, 20);
+            yPos += 30;
+
+            // Client
+            var lblClient = new Label();
+            lblClient.Text = LocalizationManager.GetString("client") + ":";
+            lblClient.Location = new Point(20, yPos);
+            lblClient.Size = new Size(100, 20);
+
+            var lblClientName = new Label();
+            lblClientName.Text = payment.ClientName;
+            lblClientName.Location = new Point(130, yPos);
+            lblClientName.Size = new Size(280, 20);
+            lblClientName.Font = new Font("Arial", 10, FontStyle.Bold);
+            yPos += 25;
+
+            // Service
+            var lblService = new Label();
+            lblService.Text = LocalizationManager.GetString("service_name") + ":";
+            lblService.Location = new Point(20, yPos);
+            lblService.Size = new Size(100, 20);
+
+            var lblServiceName = new Label();
+            lblServiceName.Text = payment.ServiceName ?? "Γενική Πληρωμή";
+            lblServiceName.Location = new Point(130, yPos);
+            lblServiceName.Size = new Size(280, 20);
+            yPos += 25;
+
+            // Amount
+            var lblAmount = new Label();
+            lblAmount.Text = LocalizationManager.GetString("amount") + ":";
+            lblAmount.Location = new Point(20, yPos);
+            lblAmount.Size = new Size(100, 20);
+
+            var lblAmountValue = new Label();
+            lblAmountValue.Text = $"€{payment.Amount:F2}";
+            lblAmountValue.Location = new Point(130, yPos);
+            lblAmountValue.Size = new Size(100, 20);
+            lblAmountValue.Font = new Font("Arial", 11, FontStyle.Bold);
+            lblAmountValue.ForeColor = Color.DarkGreen;
+            yPos += 40;
+
+            // Payment Method
+            var lblPaymentMethod = new Label();
+            lblPaymentMethod.Text = LocalizationManager.GetString("payment_method") + ":";
+            lblPaymentMethod.Location = new Point(20, yPos);
+            lblPaymentMethod.Size = new Size(100, 20);
+
+            cboPaymentMethod = new ComboBox();
+            cboPaymentMethod.Location = new Point(130, yPos);
+            cboPaymentMethod.Size = new Size(280, 20);
+            cboPaymentMethod.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboPaymentMethod.Items.AddRange(new string[] {
+                LocalizationManager.GetString("cash"),
+                LocalizationManager.GetString("bank_transfer"),
+                LocalizationManager.GetString("credit_card"),
+                LocalizationManager.GetString("check")
+            });
+            cboPaymentMethod.SelectedIndex = 0;
+            yPos += 35;
+
+            // Reference
+            var lblReference = new Label();
+            lblReference.Text = LocalizationManager.GetString("reference") + ":";
+            lblReference.Location = new Point(20, yPos);
+            lblReference.Size = new Size(100, 20);
+
+            txtReference = new TextBox();
+            txtReference.Location = new Point(130, yPos);
+            txtReference.Size = new Size(280, 20);
+            yPos += 35;
+
+            // Months Paid (for periodic payments)
+            if (payment.PaymentType == "Periodic" && payment.ClientServiceId.HasValue)
+            {
+                var lblMonthsPaid = new Label();
+                lblMonthsPaid.Text = LocalizationManager.GetString("payment_periods") + ":";
+                lblMonthsPaid.Location = new Point(20, yPos);
+                lblMonthsPaid.Size = new Size(100, 20);
+
+                numMonthsPaid = new NumericUpDown();
+                numMonthsPaid.Location = new Point(130, yPos);
+                numMonthsPaid.Size = new Size(60, 20);
+                numMonthsPaid.Minimum = 1;
+                numMonthsPaid.Maximum = 12;
+                numMonthsPaid.Value = 1;
+                numMonthsPaid.ValueChanged += NumMonthsPaid_ValueChanged;
+
+                lblMonthsInfo = new Label();
+                lblMonthsInfo.Text = string.Format(LocalizationManager.GetString("payment_for_months"), 1);
+                lblMonthsInfo.Location = new Point(200, yPos);
+                lblMonthsInfo.Size = new Size(200, 20);
+                yPos += 35;
+            }
+
+            // Buttons
+            btnSave = new Button();
+            btnSave.Text = LocalizationManager.GetString("save");
+            btnSave.Location = new Point(250, yPos + 20);
+            btnSave.Size = new Size(80, 30);
+            btnSave.UseVisualStyleBackColor = true;
+            btnSave.Click += BtnSave_Click;
+
+            btnCancel = new Button();
+            btnCancel.Text = LocalizationManager.GetString("cancel");
+            btnCancel.Location = new Point(340, yPos + 20);
+            btnCancel.Size = new Size(80, 30);
+            btnCancel.UseVisualStyleBackColor = true;
+            btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
+
+            this.Controls.AddRange(new Control[] {
+                lblPaymentInfo, lblClient, lblClientName, lblService, lblServiceName,
+                lblAmount, lblAmountValue, lblPaymentMethod, cboPaymentMethod,
+                lblReference, txtReference
+            });
+
+            if (numMonthsPaid != null)
+            {
+                this.Controls.Add(this.Controls.OfType<Label>().FirstOrDefault(l => l.Text.Contains(LocalizationManager.GetString("payment_periods"))));
+                this.Controls.Add(numMonthsPaid);
+                this.Controls.Add(lblMonthsInfo);
+            }
+
+            this.Controls.Add(btnSave);
+            this.Controls.Add(btnCancel);
+        }
+
+        private void NumMonthsPaid_ValueChanged(object sender, EventArgs e)
+        {
+            if (lblMonthsInfo != null)
+            {
+                lblMonthsInfo.Text = string.Format(LocalizationManager.GetString("payment_for_months"), numMonthsPaid.Value);
+            }
+        }
+
+        private void BtnSave_Click(object sender, EventArgs e)
+        {
+            try
+            {
+                var paymentManager = new PaymentManager(dbManager);
+                int monthsPaid = numMonthsPaid?.Value != null ? (int)numMonthsPaid.Value : 1;
+
+                paymentManager.MarkPaymentAsPaid(payment.Id, cboPaymentMethod.Text, txtReference.Text, monthsPaid);
+
+                MessageBox.Show("Η πληρωμή καταχωρήθηκε επιτυχώς.",
+                    LocalizationManager.GetString("success"), MessageBoxButtons.OK, MessageBoxIcon.Information);
+
+                this.DialogResult = DialogResult.OK;
+            }
+            catch (Exception ex)
+            {
+                LogManager.LogError("Error marking payment as paid", ex);
+                MessageBox.Show(ex.Message, LocalizationManager.GetString("error"),
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+}
