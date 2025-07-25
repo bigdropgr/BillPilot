@@ -16,13 +16,15 @@ namespace BillPilot
         private DataGridView upcomingGrid;
         private DateTimePicker fromDatePicker, toDatePicker;
         private TextBox searchBox;
-        private Button refreshButton, editPaymentButton;
+        private Button refreshButton, editPaymentButton, markPaidButton;
         private Label totalLabel;
+        private MainForm mainForm;
 
-        public UpcomingPaymentsControl(DatabaseManager dbManager)
+        public UpcomingPaymentsControl(DatabaseManager dbManager, MainForm mainForm)
         {
             this.dbManager = dbManager;
             this.paymentManager = new PaymentManager(dbManager);
+            this.mainForm = mainForm;
             InitializeComponent();
             LoadUpcomingPayments();
         }
@@ -76,6 +78,13 @@ namespace BillPilot
             editPaymentButton.UseVisualStyleBackColor = true;
             editPaymentButton.Click += EditPaymentButton_Click;
 
+            markPaidButton = new Button();
+            markPaidButton.Text = LocalizationManager.GetString("mark_as_paid");
+            markPaidButton.Location = new Point(1010, 15);
+            markPaidButton.Size = new Size(120, 30);
+            markPaidButton.UseVisualStyleBackColor = true;
+            markPaidButton.Click += MarkPaidButton_Click;
+
             totalLabel = new Label();
             totalLabel.Text = LocalizationManager.GetString("total") + ": €0.00";
             totalLabel.Location = new Point(this.Width - 200, 50);
@@ -99,6 +108,9 @@ namespace BillPilot
             upcomingGrid.RowHeadersVisible = false;
             upcomingGrid.BackgroundColor = Color.White;
             upcomingGrid.BorderStyle = BorderStyle.Fixed3D;
+            upcomingGrid.CellDoubleClick += (sender, e) => {
+                if (e.RowIndex >= 0) EditPaymentButton_Click(sender, e);
+            };
 
             // Add columns
             upcomingGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
@@ -129,7 +141,7 @@ namespace BillPilot
 
             this.Controls.AddRange(new Control[] {
                 fromLabel, fromDatePicker, toLabel, toDatePicker, searchLabel, searchBox,
-                refreshButton, editPaymentButton, totalLabel, upcomingGrid
+                refreshButton, editPaymentButton, markPaidButton, totalLabel, upcomingGrid
             });
         }
 
@@ -173,6 +185,27 @@ namespace BillPilot
                 if (editForm.ShowDialog() == DialogResult.OK)
                 {
                     LoadUpcomingPayments();
+                    mainForm?.RefreshDashboard();
+                }
+            }
+            else
+            {
+                MessageBox.Show(LocalizationManager.GetString("no_selection"),
+                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
+        private void MarkPaidButton_Click(object sender, EventArgs e)
+        {
+            if (upcomingGrid.SelectedRows.Count > 0)
+            {
+                var selectedPayment = (Payment)upcomingGrid.SelectedRows[0].DataBoundItem;
+                var markPaidForm = new MarkPaymentPaidForm(dbManager, selectedPayment);
+
+                if (markPaidForm.ShowDialog() == DialogResult.OK)
+                {
+                    LoadUpcomingPayments();
+                    mainForm?.RefreshDashboard();
                 }
             }
             else
@@ -190,13 +223,15 @@ namespace BillPilot
         private PaymentManager paymentManager;
         private DataGridView delayedGrid;
         private TextBox searchBox;
-        private Button refreshButton, markPaidButton;
+        private Button refreshButton, markPaidButton, editPaymentButton;
         private Label totalLabel;
+        private MainForm mainForm;
 
-        public DelayedPaymentsControl(DatabaseManager dbManager)
+        public DelayedPaymentsControl(DatabaseManager dbManager, MainForm mainForm)
         {
             this.dbManager = dbManager;
             this.paymentManager = new PaymentManager(dbManager);
+            this.mainForm = mainForm;
             InitializeComponent();
             LoadDelayedPayments();
         }
@@ -223,9 +258,16 @@ namespace BillPilot
             refreshButton.UseVisualStyleBackColor = true;
             refreshButton.Click += (s, e) => LoadDelayedPayments();
 
+            editPaymentButton = new Button();
+            editPaymentButton.Text = LocalizationManager.GetString("edit_payment");
+            editPaymentButton.Location = new Point(420, 15);
+            editPaymentButton.Size = new Size(120, 30);
+            editPaymentButton.UseVisualStyleBackColor = true;
+            editPaymentButton.Click += EditPaymentButton_Click;
+
             markPaidButton = new Button();
             markPaidButton.Text = LocalizationManager.GetString("mark_as_paid");
-            markPaidButton.Location = new Point(420, 15);
+            markPaidButton.Location = new Point(550, 15);
             markPaidButton.Size = new Size(120, 30);
             markPaidButton.UseVisualStyleBackColor = true;
             markPaidButton.Click += MarkPaidButton_Click;
@@ -253,6 +295,9 @@ namespace BillPilot
             delayedGrid.RowHeadersVisible = false;
             delayedGrid.BackgroundColor = Color.White;
             delayedGrid.BorderStyle = BorderStyle.Fixed3D;
+            delayedGrid.CellDoubleClick += (sender, e) => {
+                if (e.RowIndex >= 0) EditPaymentButton_Click(sender, e);
+            };
 
             // Add columns
             delayedGrid.Columns.Add(new DataGridViewTextBoxColumn { DataPropertyName = "Id", HeaderText = "ID", Visible = false });
@@ -285,7 +330,7 @@ namespace BillPilot
             delayedGrid.CellFormatting += DelayedGrid_CellFormatting;
 
             this.Controls.AddRange(new Control[] {
-                searchLabel, searchBox, refreshButton, markPaidButton, totalLabel, delayedGrid
+                searchLabel, searchBox, refreshButton, editPaymentButton, markPaidButton, totalLabel, delayedGrid
             });
         }
 
@@ -295,7 +340,7 @@ namespace BillPilot
             {
                 var payment = (Payment)delayedGrid.Rows[e.RowIndex].DataBoundItem;
                 var daysOverdue = (DateTime.Now.Date - payment.DueDate).Days;
-                
+
                 if (daysOverdue > 60)
                 {
                     e.CellStyle.BackColor = Color.FromArgb(255, 220, 220);
@@ -340,6 +385,25 @@ namespace BillPilot
             }
         }
 
+        private void EditPaymentButton_Click(object sender, EventArgs e)
+        {
+            if (delayedGrid.SelectedRows.Count > 0)
+            {
+                var selectedPayment = (Payment)delayedGrid.SelectedRows[0].DataBoundItem;
+                var editForm = new EditPaymentForm(dbManager, selectedPayment);
+                if (editForm.ShowDialog() == DialogResult.OK)
+                {
+                    LoadDelayedPayments();
+                    mainForm?.RefreshDashboard();
+                }
+            }
+            else
+            {
+                MessageBox.Show(LocalizationManager.GetString("no_selection"),
+                    LocalizationManager.GetString("warning"), MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+        }
+
         private void MarkPaidButton_Click(object sender, EventArgs e)
         {
             if (delayedGrid.SelectedRows.Count > 0)
@@ -350,6 +414,7 @@ namespace BillPilot
                 if (markPaidForm.ShowDialog() == DialogResult.OK)
                 {
                     LoadDelayedPayments();
+                    mainForm?.RefreshDashboard();
                 }
             }
             else

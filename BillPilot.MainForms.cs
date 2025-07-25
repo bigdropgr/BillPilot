@@ -68,7 +68,7 @@ namespace BillPilot
 
             // Logo detection and display
             var logoPanel = new Panel();
-            logoPanel.Size = new Size(360, 60);
+            logoPanel.Size = new Size(150, 50);
             logoPanel.Location = new Point(20, 10);
             logoPanel.BackColor = Color.White;
             logoPanel.BorderStyle = BorderStyle.FixedSingle;
@@ -150,7 +150,7 @@ namespace BillPilot
             }
 
             // Create default logo if none found
-            var bitmap = new Bitmap(300, 50);
+            var bitmap = new Bitmap(150, 50);
             using (var g = Graphics.FromImage(bitmap))
             {
                 g.FillRectangle(Brushes.DarkBlue, 0, 0, 300, 50);
@@ -244,6 +244,12 @@ namespace BillPilot
 
             // Create initial upcoming payments
             CheckAndCreateUpcomingPayments();
+        }
+
+        // Add public method to refresh dashboard from other forms
+        public void RefreshDashboard()
+        {
+            LoadDashboardData();
         }
 
         private void CheckDelayedPayments()
@@ -413,7 +419,7 @@ namespace BillPilot
             // Logo section
             var logoPanel = new Panel();
             logoPanel.Location = new Point(20, 20);
-            logoPanel.Size = new Size(200, 100);
+            logoPanel.Size = new Size(150, 50);
             logoPanel.BackColor = Color.White;
             logoPanel.BorderStyle = BorderStyle.FixedSingle;
 
@@ -587,7 +593,7 @@ namespace BillPilot
 
         private void CreateDefaultLogo()
         {
-            var bitmap = new Bitmap(150, 80);
+            var bitmap = new Bitmap(150, 50);
             using (var g = Graphics.FromImage(bitmap))
             {
                 g.FillRectangle(Brushes.DarkBlue, 0, 0, 150, 80);
@@ -730,7 +736,7 @@ namespace BillPilot
         {
             upcomingTab = new TabPage(LocalizationManager.GetString("upcoming_payments"));
 
-            var upcomingControl = new UpcomingPaymentsControl(dbManager);
+            var upcomingControl = new UpcomingPaymentsControl(dbManager, this);
             upcomingControl.Dock = DockStyle.Fill;
             upcomingTab.Controls.Add(upcomingControl);
         }
@@ -739,7 +745,7 @@ namespace BillPilot
         {
             delayedTab = new TabPage(LocalizationManager.GetString("delayed_payments"));
 
-            var delayedControl = new DelayedPaymentsControl(dbManager);
+            var delayedControl = new DelayedPaymentsControl(dbManager, this);
             delayedControl.Dock = DockStyle.Fill;
             delayedTab.Controls.Add(delayedControl);
         }
